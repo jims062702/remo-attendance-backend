@@ -1,0 +1,80 @@
+# Rendered at container start by entrypoint.sh, which substitutes ${PORT}.
+#
+# Only ${PORT} is substituted -- nginx's own $uri, $query_string and friends
+# must survive untouched, which is why the entrypoint passes an explicit
+# variable list to envsubst rather than letting it replace everything.
+
+user www-data;
+worker_processes auto;
+pid /tmp/nginx.pid;
+
+# Logs go to the container's stdout/stderr so they appear in Render's log
+# stream rather than in a file nobody can reach on an ephemeral disk.
+error_log /dev/stderr warn;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+    access_log    /dev/stdout;
+
+    sendfile      on;
+    tcp_nopush    on;
+    keepalive_timeout 65;
+
+    # Matches the PHP upload limits; nginx rejects oversized bodies first.
+    client_max_body_size 12M;
+
+    # Everything the SPA and API return compresses well.
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript
+               application/xml text/xml image/svg+xml;
+    gzip_min_length 512;
+
+    # Temp paths under /tmp: the container filesystem is read-mostly and
+    # nginx's defaults are not writable by www-data.
+    client_body_temp_path /tmp/nginx-client;
+    proxy_temp_path       /tmp/nginx-proxy;
+    fastcgi_temp_path     /tmp/nginx-fastcgi;
+    uwsgi_temp_path       /tmp/nginx-uwsgi;
+    scgi_temp_path        /tmp/nginx-scgi;
+
+    server {
+        listen ${PORT};
+        server_name _;
+
+        root  /var/www/html/public;
+        index index.php;
+
+        charset utf-8;
+
+        # Laravel's front controller. Everything that is not a real file is
+        # handed to index.php, which is also what makes the SPA's client-side
+        # routes resolve when the built frontend is served from here.
+        location / {
+            try_files $uri $uri/ /index.php?$query_string;
+        }
+
+        location = /favicon.ico { access_log off; log_not_found off; }
+        location = /robots.txt  { access_log off; log_not_found off; }
+
+        location ~ \.php$ {
+            fastcgi_pass 127.0.0.1:9000;
+            fastcgi_index index.php;
+            include fastcgi_params;
+            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+
+            # Render's free instance is slow to wake; a 60s ceiling stops a
+            # cold start being reported as a gateway error.
+            fastcgi_read_timeout 60s;
+        }
+
+        # Never serve dotfiles -- .env above all.
+        location ~ /\.(?!well-known).* {
+            deny all;
+        }
+    }
+}
