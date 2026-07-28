@@ -13,6 +13,7 @@ use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\DailyFlowController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\MetaController;
+use App\Http\Controllers\PublicStatsController;
 use App\Http\Controllers\TaskController;
 use Illuminate\Support\Facades\Route;
 
@@ -38,6 +39,13 @@ Route::get('auth/status', [AuthController::class, 'status'])->name('auth.status'
 // Enum options for populating select controls. No user data, so it is safe
 // before authentication and lets the login screen render without a round trip.
 Route::get('meta/options', [MetaController::class, 'options'])->name('meta.options');
+
+// Aggregate floor figures for the marketing page. Counts only -- no names, no
+// identifiers. Throttled because it is the one endpoint reachable by anyone
+// with the URL, and the response is cached so the limit is generous.
+Route::get('public/floor', [PublicStatsController::class, 'floor'])
+    ->middleware('throttle:60,1')
+    ->name('public.floor');
 
 // ------------------------------------------------------------ Authenticated
 

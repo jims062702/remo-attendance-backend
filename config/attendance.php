@@ -32,14 +32,14 @@ return [
     | tasker who has finished cannot start another shift until the business
     | date rolls over.
     |
-    | With a cutoff of 12:00 and a 22:00 shift start:
+    | With a cutoff of 19:50 and a 22:00 shift start:
     |
     |   Jul 26 10:05 PM -> business date Jul 26 (on time)
     |   Jul 27 12:30 AM -> business date Jul 26 (late for Jul 26's shift)
     |   Jul 27 05:00 AM -> business date Jul 26 (very late, near shift end)
-    |   Jul 27 11:59 AM -> business date Jul 26 (still the night just worked)
-    |   Jul 27 12:00 PM -> business date Jul 27 (a new night opens)
-    |   Jul 27 07:15 PM -> business date Jul 27 (early for that shift)
+    |   Jul 27 07:49 PM -> business date Jul 26 (still the night just worked)
+    |   Jul 27 07:50 PM -> business date Jul 27 (a new night opens)
+    |   Jul 27 10:00 PM -> business date Jul 27 (on time for that shift)
     |
     | The cutoff must sit between shift_end and shift_start -- here 06:00 and
     | 22:00 -- in the dead hours when nobody is clocked in. Moving it into the
@@ -47,9 +47,14 @@ return [
     | is precisely what the unique index on (user_id, attendance_date) cannot
     | protect against.
     |
-    | Noon rather than the previous 18:00, so the next night becomes available
-    | six hours earlier: someone who worked to 6 AM and slept can file the
-    | following shift from midday instead of waiting until the evening.
+    | 19:50 puts the rollover ten minutes before the shift opens, so the new
+    | night becomes fileable just as people arrive and the previous night stays
+    | editable for the whole day after it.
+    |
+    | The default here matches the deployed .env deliberately. When the two
+    | disagreed, a missing environment variable silently produced a different
+    | shift boundary -- with nothing to warn anyone that attendance was being
+    | filed against the wrong night.
     |
     | Changing this does NOT rewrite history. `attendance_date` is resolved
     | once, at write time, and stored -- existing records keep the business
@@ -57,7 +62,7 @@ return [
     |
     */
 
-    'business_day_cutoff' => env('ATTENDANCE_BUSINESS_DAY_CUTOFF', '12:00'),
+    'business_day_cutoff' => env('ATTENDANCE_BUSINESS_DAY_CUTOFF', '19:50'),
 
     /*
     |--------------------------------------------------------------------------
