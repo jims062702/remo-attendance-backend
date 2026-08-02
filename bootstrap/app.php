@@ -21,6 +21,25 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // In production nothing reaches PHP directly: a request crosses
+        // Vercel's rewrite proxy and then Render's load balancer, and both
+        // terminate TLS before handing on a plain HTTP request. Without this,
+        // Laravel believes every request is insecure -- url() emits http://
+        // links, and Laravel's own "is this connection secure" checks answer
+        // no on a site that is HTTPS-only.
+        //
+        // `at: '*'` because neither proxy has a fixed address to pin. That is
+        // safe only because the container is not publicly addressable except
+        // through them, and because X-Forwarded-Host is deliberately left out
+        // of the trusted set below: trusting it would let a caller forge the
+        // application's own hostname through a header.
+        $middleware->trustProxies(
+            at: '*',
+            headers: Request::HEADER_X_FORWARDED_FOR
+                | Request::HEADER_X_FORWARDED_PORT
+                | Request::HEADER_X_FORWARDED_PROTO,
+        );
+
         // Sanctum SPA (cookie) authentication: requests from a configured
         // stateful domain are given the session + CSRF stack, so the token
         // never has to be readable by JavaScript.

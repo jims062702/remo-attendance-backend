@@ -6,6 +6,7 @@ namespace App\Models;
 
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
+use App\Support\Sql;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -128,7 +129,7 @@ class User extends Authenticatable
         $like = '%'.str_replace(['%', '_'], ['\%', '\_'], $term).'%';
 
         $query->where(function (Builder $q) use ($like): void {
-            $q->where('name', 'like', $like)->orWhere('email', 'like', $like);
+            $q->where('name', Sql::like(), $like)->orWhere('email', Sql::like(), $like);
         });
     }
 

@@ -13,6 +13,7 @@ use App\Models\Task;
 use App\Models\TrackerEntry;
 use App\Models\TrackerItem;
 use App\Models\User;
+use App\Support\Sql;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -47,14 +48,14 @@ class ReportService
         $taskerCounts = User::query()
             ->where('role', UserRole::Tasker)
             ->selectRaw('COUNT(*) AS total')
-            ->selectRaw('SUM(status = ?) AS active', [UserStatus::Active->value])
+            ->selectRaw(Sql::countIf('status = ?').' AS active', [UserStatus::Active->value])
             ->first();
 
         $attendanceToday = Attendance::query()
             ->where('attendance_date', $businessDate)
             ->selectRaw('COUNT(*) AS records')
-            ->selectRaw('SUM(time_in IS NOT NULL AND time_out IS NULL) AS currently_in')
-            ->selectRaw('SUM(status = ?) AS late', [AttendanceStatus::Late->value])
+            ->selectRaw(Sql::countIf('time_in IS NOT NULL AND time_out IS NULL').' AS currently_in')
+            ->selectRaw(Sql::countIf('status = ?').' AS late', [AttendanceStatus::Late->value])
             ->selectRaw('COALESCE(SUM(total_hours), 0) AS total_hours')
             ->first();
 
@@ -96,9 +97,9 @@ class ReportService
             ->where('task_date', $businessDate)
             ->selectRaw('COUNT(*) AS submissions')
             ->selectRaw('COALESCE(SUM(output_count), 0) AS output')
-            ->selectRaw('SUM(task_status = ?) AS completed', [TaskStatus::Completed->value])
-            ->selectRaw('SUM(task_status = ?) AS pending', [TaskStatus::Pending->value])
-            ->selectRaw('SUM(task_status = ?) AS in_progress', [TaskStatus::InProgress->value])
+            ->selectRaw(Sql::countIf('task_status = ?').' AS completed', [TaskStatus::Completed->value])
+            ->selectRaw(Sql::countIf('task_status = ?').' AS pending', [TaskStatus::Pending->value])
+            ->selectRaw(Sql::countIf('task_status = ?').' AS in_progress', [TaskStatus::InProgress->value])
             ->first();
 
         return [
@@ -142,20 +143,18 @@ class ReportService
             ? $filters['group_by'] ?? 'day'
             : 'day';
 
-        $bucket = match ($groupBy) {
-            'week' => "DATE_FORMAT(attendance_date, '%x-W%v')",
-            'month' => "DATE_FORMAT(attendance_date, '%Y-%m')",
-            default => "DATE_FORMAT(attendance_date, '%Y-%m-%d')",
-        };
+        // $groupBy is already narrowed to day/week/month above, so nothing
+        // caller-supplied reaches the SQL string.
+        $bucket = Sql::dateBucket('attendance_date', $groupBy);
 
         $series = $this->attendanceQuery($filters)
             ->selectRaw("{$bucket} AS bucket")
             ->selectRaw('COUNT(*) AS records')
-            ->selectRaw('SUM(status = ?) AS present', [AttendanceStatus::Present->value])
-            ->selectRaw('SUM(status = ?) AS late', [AttendanceStatus::Late->value])
-            ->selectRaw('SUM(status = ?) AS incomplete', [AttendanceStatus::Incomplete->value])
-            ->selectRaw('SUM(status = ?) AS absent', [AttendanceStatus::Absent->value])
-            ->selectRaw('SUM(time_in IS NOT NULL AND time_out IS NULL) AS missing_time_out')
+            ->selectRaw(Sql::countIf('status = ?').' AS present', [AttendanceStatus::Present->value])
+            ->selectRaw(Sql::countIf('status = ?').' AS late', [AttendanceStatus::Late->value])
+            ->selectRaw(Sql::countIf('status = ?').' AS incomplete', [AttendanceStatus::Incomplete->value])
+            ->selectRaw(Sql::countIf('status = ?').' AS absent', [AttendanceStatus::Absent->value])
+            ->selectRaw(Sql::countIf('time_in IS NOT NULL AND time_out IS NULL').' AS missing_time_out')
             ->selectRaw('COALESCE(SUM(total_hours), 0) AS total_hours')
             ->groupBy('bucket')
             ->orderBy('bucket')
@@ -191,8 +190,8 @@ class ReportService
             ->selectRaw('COUNT(DISTINCT user_id) AS taskers')
             ->selectRaw('COALESCE(SUM(total_hours), 0) AS total_hours')
             ->selectRaw('AVG(total_hours) AS average_hours')
-            ->selectRaw('SUM(status = ?) AS late', [AttendanceStatus::Late->value])
-            ->selectRaw('SUM(time_in IS NOT NULL AND time_out IS NULL) AS missing_time_out')
+            ->selectRaw(Sql::countIf('status = ?').' AS late', [AttendanceStatus::Late->value])
+            ->selectRaw(Sql::countIf('time_in IS NOT NULL AND time_out IS NULL').' AS missing_time_out')
             ->selectRaw('COALESCE(SUM(expected_hours), 0) AS expected_hours')
             ->first();
 
@@ -225,14 +224,14 @@ class ReportService
 
         $attendance = $this->attendanceQuery($filters)
             ->selectRaw('COUNT(*) AS records')
-            ->selectRaw('SUM(status IN (?, ?, ?)) AS days_worked', [
+            ->selectRaw(Sql::countIf('status IN (?, ?, ?)').' AS days_worked', [
                 AttendanceStatus::Present->value,
                 AttendanceStatus::Late->value,
                 AttendanceStatus::Incomplete->value,
             ])
-            ->selectRaw('SUM(status = ?) AS late_days', [AttendanceStatus::Late->value])
-            ->selectRaw('SUM(status = ?) AS absent_days', [AttendanceStatus::Absent->value])
-            ->selectRaw('SUM(time_in IS NOT NULL AND time_out IS NULL) AS missing_time_out')
+            ->selectRaw(Sql::countIf('status = ?').' AS late_days', [AttendanceStatus::Late->value])
+            ->selectRaw(Sql::countIf('status = ?').' AS absent_days', [AttendanceStatus::Absent->value])
+            ->selectRaw(Sql::countIf('time_in IS NOT NULL AND time_out IS NULL').' AS missing_time_out')
             ->selectRaw('COALESCE(SUM(total_hours), 0) AS total_hours')
             ->selectRaw('AVG(total_hours) AS average_hours')
             ->selectRaw('COALESCE(SUM(expected_hours), 0) AS expected_hours')
@@ -240,10 +239,10 @@ class ReportService
 
         $tasks = $this->taskQuery($filters)
             ->selectRaw('COUNT(*) AS total_tasks')
-            ->selectRaw('SUM(task_status = ?) AS completed', [TaskStatus::Completed->value])
-            ->selectRaw('SUM(task_status = ?) AS pending', [TaskStatus::Pending->value])
-            ->selectRaw('SUM(task_status = ?) AS in_progress', [TaskStatus::InProgress->value])
-            ->selectRaw('SUM(task_status = ?) AS cancelled', [TaskStatus::Cancelled->value])
+            ->selectRaw(Sql::countIf('task_status = ?').' AS completed', [TaskStatus::Completed->value])
+            ->selectRaw(Sql::countIf('task_status = ?').' AS pending', [TaskStatus::Pending->value])
+            ->selectRaw(Sql::countIf('task_status = ?').' AS in_progress', [TaskStatus::InProgress->value])
+            ->selectRaw(Sql::countIf('task_status = ?').' AS cancelled', [TaskStatus::Cancelled->value])
             ->selectRaw('COALESCE(SUM(CASE WHEN task_status != ? THEN output_count ELSE 0 END), 0) AS total_output', [
                 TaskStatus::Cancelled->value,
             ])
@@ -360,12 +359,12 @@ class ReportService
     {
         $attendance = $this->attendanceQuery($filters)
             ->selectRaw('user_id')
-            ->selectRaw('SUM(status IN (?, ?, ?)) AS days_worked', [
+            ->selectRaw(Sql::countIf('status IN (?, ?, ?)').' AS days_worked', [
                 AttendanceStatus::Present->value,
                 AttendanceStatus::Late->value,
                 AttendanceStatus::Incomplete->value,
             ])
-            ->selectRaw('SUM(status = ?) AS late_days', [AttendanceStatus::Late->value])
+            ->selectRaw(Sql::countIf('status = ?').' AS late_days', [AttendanceStatus::Late->value])
             ->selectRaw('COALESCE(SUM(total_hours), 0) AS total_hours')
             ->selectRaw('AVG(total_hours) AS average_hours')
             ->selectRaw('COALESCE(SUM(expected_hours), 0) AS expected_hours')
@@ -376,8 +375,8 @@ class ReportService
         $tasks = $this->taskQuery($filters)
             ->selectRaw('user_id')
             ->selectRaw('COUNT(*) AS total_tasks')
-            ->selectRaw('SUM(task_status = ?) AS completed', [TaskStatus::Completed->value])
-            ->selectRaw('SUM(task_status = ?) AS cancelled', [TaskStatus::Cancelled->value])
+            ->selectRaw(Sql::countIf('task_status = ?').' AS completed', [TaskStatus::Completed->value])
+            ->selectRaw(Sql::countIf('task_status = ?').' AS cancelled', [TaskStatus::Cancelled->value])
             ->selectRaw('COALESCE(SUM(CASE WHEN task_status != ? THEN output_count ELSE 0 END), 0) AS total_output', [
                 TaskStatus::Cancelled->value,
             ])

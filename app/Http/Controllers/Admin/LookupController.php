@@ -11,6 +11,7 @@ use App\Models\Site;
 use App\Models\SupportTeam;
 use App\Models\Workstation;
 use App\Services\ActivityLogger;
+use App\Support\Sql;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -74,7 +75,7 @@ class LookupController extends Controller
             ->with($config['with'])
             ->when($request->query('search'), function ($q, $term) use ($config) {
                 $like = '%'.str_replace(['%', '_'], ['\%', '\_'], (string) $term).'%';
-                $q->where($config['unique'], 'like', $like);
+                $q->where($config['unique'], Sql::like(), $like);
             })
             ->when(
                 $request->has('is_active') && $request->query('is_active') !== '',

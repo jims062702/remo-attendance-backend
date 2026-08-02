@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Enums\TaskStatus;
+use App\Support\Sql;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -122,10 +123,10 @@ class Task extends Model
         $like = '%'.str_replace(['%', '_'], ['\%', '\_'], $term).'%';
 
         $query->where(function (Builder $q) use ($like): void {
-            $q->where('task_name', 'like', $like)
-                ->orWhere('task_code', 'like', $like)
-                ->orWhere('external_task_id', 'like', $like)
-                ->orWhere('task_description', 'like', $like);
+            $q->where('task_name', Sql::like(), $like)
+                ->orWhere('task_code', Sql::like(), $like)
+                ->orWhere('external_task_id', Sql::like(), $like)
+                ->orWhere('task_description', Sql::like(), $like);
         });
     }
 

@@ -94,7 +94,12 @@ return [
             'prefix' => '',
             'prefix_indexes' => true,
             'search_path' => 'public',
-            'sslmode' => 'prefer',
+            // 'prefer' negotiates TLS and falls back to plaintext, which suits
+            // both of Render's addresses: the internal hostname is inside their
+            // private network and needs no encryption, while the external one
+            // requires it. Set DB_SSLMODE=require to refuse a plaintext
+            // connection outright rather than silently accepting one.
+            'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 
         'sqlsrv' => [

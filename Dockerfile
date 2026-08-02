@@ -10,13 +10,21 @@
 
 FROM php:8.2-fpm-alpine
 
-# gd and zip are required by PhpSpreadsheet (the Excel exports); pdo_mysql is
-# the database driver; the rest are Laravel's own baseline.
+# gd and zip are required by PhpSpreadsheet (the Excel exports); the rest are
+# Laravel's own baseline.
+#
+# Both database drivers are installed on purpose. pdo_pgsql is the one that
+# matters here -- the deployed database is Render's managed PostgreSQL -- but
+# development and the test suite run on MariaDB, and an image that can only
+# speak one dialect makes it impossible to reproduce a production problem
+# locally against the image itself. The pair costs a few megabytes.
 RUN apk add --no-cache \
         nginx supervisor gettext \
         libpng-dev libjpeg-turbo-dev freetype-dev libzip-dev oniguruma-dev \
+        postgresql-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install -j"$(nproc)" gd zip pdo_mysql mbstring bcmath opcache
+    && docker-php-ext-install -j"$(nproc)" \
+        gd zip pdo_mysql pdo_pgsql mbstring bcmath opcache
 # The -dev packages are deliberately NOT removed afterwards. Alpine treats the
 # runtime libraries as their dependencies, so `apk del libpng-dev` takes libpng
 # with it as an orphan -- and gd then fails to load at runtime, which surfaces

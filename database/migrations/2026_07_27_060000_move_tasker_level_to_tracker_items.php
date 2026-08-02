@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -29,10 +30,23 @@ return new class extends Migration
         // Carry any existing entry-level value down to its blocks so nothing
         // is lost, then drop the column.
         if (Schema::hasColumn('tracker_entries', 'tasker_level')) {
-            \Illuminate\Support\Facades\DB::statement(
-                'UPDATE tracker_items i
-                 JOIN tracker_entries e ON e.id = i.tracker_entry_id
-                 SET i.tasker_level = e.tasker_level',
+            // A cross-table UPDATE is one of the places where the two engines
+            // share no syntax: MySQL joins in the UPDATE clause, PostgreSQL
+            // uses a FROM clause and neither parses the other's version.
+            //
+            // This runs on a fresh database too, not only on one carrying real
+            // rows -- the preceding migration creates tracker_entries WITH
+            // tasker_level, so the branch is always taken and a MySQL-only
+            // statement here would fail the very first deploy.
+            DB::statement(
+                DB::connection()->getDriverName() === 'pgsql'
+                    ? 'UPDATE tracker_items
+                       SET tasker_level = e.tasker_level
+                       FROM tracker_entries e
+                       WHERE e.id = tracker_items.tracker_entry_id'
+                    : 'UPDATE tracker_items i
+                       JOIN tracker_entries e ON e.id = i.tracker_entry_id
+                       SET i.tasker_level = e.tasker_level',
             );
 
             Schema::table('tracker_entries', function (Blueprint $table) {

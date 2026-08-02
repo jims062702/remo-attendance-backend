@@ -11,6 +11,7 @@ use App\Http\Controllers\Concerns\ApiResponses;
 use App\Models\Attendance;
 use App\Models\User;
 use App\Services\AttendanceService;
+use App\Support\Sql;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
 
@@ -73,9 +74,9 @@ class PublicStatsController extends Controller
 
         $today = Attendance::query()
             ->where('attendance_date', $businessDate)
-            ->selectRaw('SUM(time_in IS NOT NULL AND time_out IS NULL) AS currently_in')
-            ->selectRaw('SUM(status = ?) AS present', [AttendanceStatus::Present->value])
-            ->selectRaw('SUM(status = ?) AS late', [AttendanceStatus::Late->value])
+            ->selectRaw(Sql::countIf('time_in IS NOT NULL AND time_out IS NULL').' AS currently_in')
+            ->selectRaw(Sql::countIf('status = ?').' AS present', [AttendanceStatus::Present->value])
+            ->selectRaw(Sql::countIf('status = ?').' AS late', [AttendanceStatus::Late->value])
             ->first();
 
         $present = (int) ($today->present ?? 0);

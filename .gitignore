@@ -6,9 +6,13 @@
 /storage/*.key
 /storage/pail
 /vendor
+# Every .env variant is ignored, and .env.example is the single exception.
+# Listing files individually is how a secret eventually gets committed: the
+# next .env.<something> anyone adds is tracked by default. .env.render holds
+# the production database password and the Google client secret.
 .env
-.env.backup
-.env.production
+.env.*
+!.env.example
 .phpactor.json
 .phpunit.result.cache
 Homestead.json
