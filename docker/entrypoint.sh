@@ -35,39 +35,21 @@ echo "==> Running migrations"
 # restart re-running them is a no-op rather than a hazard.
 php artisan migrate --force
 
-# Bootstrap the first administrator.
+echo "==> Ensuring administrators exist"
+# The addresses listed in AdministratorSeeder. Sign-in is Google-only and
+# accounts are never self-created, so without this a freshly migrated database
+# has nobody who can reach the admin screens -- and no way to create anyone,
+# because creating users is itself an admin screen. `php artisan user:authorise`
+# is the usual way out of that, but Render gives free instances no shell.
 #
-# Sign-in is Google-only and accounts are never self-created, so a freshly
-# migrated database has nobody who can reach the admin screens -- and no way to
-# create anyone, because creating users is itself an admin screen. Normally
-# `php artisan user:authorise` breaks that circle from a shell, but Render
-# gives free instances no shell at all.
+# Only that one seeder, never `db:seed` on its own: the default DatabaseSeeder
+# is demo data -- fictional taskers and three weeks of invented shifts -- and
+# running it against production would be a mess to unpick.
 #
-# Setting BOOTSTRAP_ADMIN_EMAIL in the service environment does the same job at
-# start-up instead. Remove the variable once the account exists: leaving it set
-# is harmless -- the command updates the existing record rather than duplicating
-# it -- but it re-runs on every deploy for no reason, and it would quietly
-# restore admin rights to that address if they were ever deliberately revoked.
-if [ -n "${BOOTSTRAP_ADMIN_EMAIL:-}" ]; then
-    echo "==> Authorising ${BOOTSTRAP_ADMIN_EMAIL} as an administrator"
-
-    # The two branches exist because --name has to be passed as a single
-    # argument. Folding it into one command with ${VAR:+--name="$VAR"} looks
-    # tidier and is wrong: the expansion is word-split before the command runs,
-    # so "Juan Dela Cruz" arrives as three separate arguments.
-    #
-    # Neither branch is fatal. `set -e` is on, and a typo in the address would
-    # otherwise take the whole service down rather than just failing to create
-    # one account.
-    if [ -n "${BOOTSTRAP_ADMIN_NAME:-}" ]; then
-        php artisan user:authorise "${BOOTSTRAP_ADMIN_EMAIL}" --admin \
-            --name="${BOOTSTRAP_ADMIN_NAME}" \
-            || echo "!!! Could not authorise ${BOOTSTRAP_ADMIN_EMAIL} -- continuing anyway"
-    else
-        php artisan user:authorise "${BOOTSTRAP_ADMIN_EMAIL}" --admin \
-            || echo "!!! Could not authorise ${BOOTSTRAP_ADMIN_EMAIL} -- continuing anyway"
-    fi
-fi
+# Deliberately not fatal. `set -e` is on, and a seeder that fails should cost
+# one account, not the whole service.
+php artisan db:seed --class=AdministratorSeeder --force \
+    || echo "!!! Administrator seeding failed -- continuing anyway"
 
 echo "==> Starting php-fpm and nginx"
 exec supervisord -c /etc/supervisord.conf
