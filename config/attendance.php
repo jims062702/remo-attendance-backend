@@ -32,13 +32,13 @@ return [
     | tasker who has finished cannot start another shift until the business
     | date rolls over.
     |
-    | With a cutoff of 19:50 and a 22:00 shift start:
+    | With a cutoff of 21:50 and a 22:00 shift start:
     |
     |   Jul 26 10:05 PM -> business date Jul 26 (on time)
     |   Jul 27 12:30 AM -> business date Jul 26 (late for Jul 26's shift)
     |   Jul 27 05:00 AM -> business date Jul 26 (very late, near shift end)
-    |   Jul 27 07:49 PM -> business date Jul 26 (still the night just worked)
-    |   Jul 27 07:50 PM -> business date Jul 27 (a new night opens)
+    |   Jul 27 09:49 PM -> business date Jul 26 (still the night just worked)
+    |   Jul 27 09:50 PM -> business date Jul 27 (a new night opens)
     |   Jul 27 10:00 PM -> business date Jul 27 (on time for that shift)
     |
     | The cutoff must sit between shift_end and shift_start -- here 06:00 and
@@ -47,9 +47,16 @@ return [
     | is precisely what the unique index on (user_id, attendance_date) cannot
     | protect against.
     |
-    | 19:50 puts the rollover ten minutes before the shift opens, so the new
+    | 21:50 puts the rollover ten minutes before the shift opens, so the new
     | night becomes fileable just as people arrive and the previous night stays
     | editable for the whole day after it.
+    |
+    | It was 19:50 until the two hours between were noticed to be doing nothing
+    | useful: the comment above already described a ten-minute lead, the shift
+    | starts at 22:00, and 19:50 gave a lead of two hours and ten. In that gap
+    | the night just worked had already stopped being "current" while the next
+    | one was still hours from starting, so a tasker looking at the screen at
+    | 8 PM was told a shift had opened that nobody would arrive for.
     |
     | The default here matches the deployed .env deliberately. When the two
     | disagreed, a missing environment variable silently produced a different
@@ -62,7 +69,7 @@ return [
     |
     */
 
-    'business_day_cutoff' => env('ATTENDANCE_BUSINESS_DAY_CUTOFF', '19:50'),
+    'business_day_cutoff' => env('ATTENDANCE_BUSINESS_DAY_CUTOFF', '21:50'),
 
     /*
     |--------------------------------------------------------------------------
