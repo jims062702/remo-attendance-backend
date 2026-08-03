@@ -7,6 +7,7 @@ namespace App\Http\Requests\Daily;
 use App\Enums\TaskComplexity;
 use App\Enums\TaskerLevel;
 use App\Enums\Tenurity;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -37,7 +38,18 @@ class SubmitTrackerRequest extends FormRequest
             // Optional -- the server falls back to the single active site.
             'site_id' => ['nullable', 'integer', 'exists:sites,id'],
 
-            'support_team_id' => ['nullable', 'integer', Rule::exists('support_teams', 'id')->where('is_active', true)],
+            // Closure form for the same reason as the PC rule in
+            // ActivateAttendanceRequest: ->where() serialises its value into
+            // the rule string, and a boolean does not survive that intact.
+            // `true` happens to come out as "1", which PostgreSQL accepts, so
+            // this one was never broken -- but it is the same construction one
+            // `false` away from being, and it should not be left as a trap.
+            'support_team_id' => [
+                'nullable', 'integer',
+                Rule::exists('support_teams', 'id')->where(
+                    fn (Builder $query) => $query->where('is_active', true),
+                ),
+            ],
 
             'items' => ['required', 'array', 'min:1'],
             'items.*.project_id' => ['required', 'integer', 'distinct', 'exists:projects,id'],

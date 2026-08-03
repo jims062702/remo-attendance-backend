@@ -7,6 +7,7 @@ namespace App\Http\Requests\Daily;
 use App\Enums\CommitmentBracket;
 use App\Enums\PcStatus;
 use App\Enums\TaskingStatus;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -39,11 +40,23 @@ class ActivateAttendanceRequest extends FormRequest
 
             // Scoped to the tasker-selectable pool, so posting a support
             // PC's id directly is rejected rather than merely hidden in the UI.
+            //
+            // The constraint is a closure, not two ->where() calls, and that is
+            // not a style choice. Values passed to ->where() are serialised
+            // into the rule's string form, where `false` becomes an empty
+            // string -- so `->where('is_support', false)` reaches the database
+            // as `is_support = ''`. MySQL silently reads that as 0 and the rule
+            // appears to work; PostgreSQL rejects it outright with
+            // "invalid input syntax for type boolean", and every activation
+            // 500s. A closure is handed straight to the query builder, so the
+            // booleans stay booleans.
             'workstation_id' => [
                 'nullable', 'integer',
-                Rule::exists('workstations', 'id')
-                    ->where('is_active', true)
-                    ->where('is_support', false),
+                Rule::exists('workstations', 'id')->where(
+                    fn (Builder $query) => $query
+                        ->where('is_active', true)
+                        ->where('is_support', false),
+                ),
             ],
             'pc_status' => ['nullable', Rule::enum(PcStatus::class)],
         ];
