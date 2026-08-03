@@ -77,6 +77,20 @@ class DailyFlowService
                 $record = new Attendance;
                 $record->user_id = $user->id;
                 $record->attendance_date = $businessDate->toDateString();
+            } elseif ($record->time_in === null && ! $record->status->isWorked()) {
+                // The night was already settled as non-attendance, by
+                // attendance:mark-absent at the cutoff or by an admin.
+                //
+                // AttendanceService::timeIn() refuses this, but activation is a
+                // second door into the same clock -- claiming a machine IS
+                // clocking in -- and it was walking straight past the rule.
+                // The flow hides itself once `settled` is true, so nothing in
+                // the UI offers this; that is exactly why the service has to
+                // enforce it rather than trust the screen.
+                throw AttendanceException::markedAbsent(
+                    $businessDate,
+                    $record->status->label(),
+                );
             }
 
             // A support-filed declaration (Absent / Discontinued / Disabled)

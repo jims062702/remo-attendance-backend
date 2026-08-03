@@ -114,6 +114,35 @@ it('closes the daily flow once the tasker is absent', function (): void {
         ->assertJsonPath('data.attendance.status', 'absent');
 });
 
+it('refuses activation once the tasker is absent', function (): void {
+    // Activation is the second door into the same clock: claiming a machine IS
+    // clocking in. The flow hides itself once settled, so nothing in the UI
+    // offers this -- which is precisely why the service has to refuse it rather
+    // than trust the screen.
+    $tasker = tasker();
+    $site = App\Models\Site::create(['name' => 'BEAMO 3F C', 'is_active' => true]);
+    $pc = App\Models\Workstation::create([
+        'name' => 'PC-01', 'site_id' => $site->id, 'is_active' => true,
+    ]);
+
+    $this->artisan('attendance:mark-absent')->assertSuccessful();
+
+    $this->actingAs($tasker)->postJson('/api/daily/activate', [
+        'commitment_bracket' => '7_plus_hours',
+        'tasking_statuses' => ['tasking'],
+        'workstation_id' => $pc->id,
+        'pc_status' => 'used',
+    ])
+        ->assertStatus(409)
+        ->assertJsonPath('code', 'attendance.marked_absent');
+
+    $record = Attendance::where('user_id', $tasker->id)->firstOrFail();
+
+    expect($record->status)->toBe(AttendanceStatus::Absent);
+    expect($record->time_in)->toBeNull();
+    expect($record->workstation_id)->toBeNull();
+});
+
 it('leaves the flow open for a tasker who worked', function (): void {
     $tasker = tasker();
 
