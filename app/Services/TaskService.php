@@ -9,7 +9,7 @@ use App\Models\Task;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
-use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -145,8 +145,8 @@ class TaskService
                 $task->save();
 
                 return $task;
-            } catch (QueryException $e) {
-                if (! $this->isUniqueViolation($e) || $attempt === self::CODE_ATTEMPTS) {
+            } catch (UniqueConstraintViolationException $e) {
+                if ($attempt === self::CODE_ATTEMPTS) {
                     throw $e;
                 }
                 // Fall through and recompute the sequence.
@@ -201,8 +201,4 @@ class TaskService
         return $trimmed;
     }
 
-    private function isUniqueViolation(QueryException $e): bool
-    {
-        return $e->getCode() === '23000' && (int) ($e->errorInfo[1] ?? 0) === 1062;
-    }
 }

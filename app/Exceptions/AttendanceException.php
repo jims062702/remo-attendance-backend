@@ -83,6 +83,25 @@ final class AttendanceException extends DomainException
     }
 
     /**
+     * The night has already been settled as non-attendance.
+     *
+     * Reached either by `attendance:mark-absent` at the configured cutoff or by
+     * an admin recording the absence by hand. Both are final: letting a late
+     * arrival clock in over the top would quietly erase the record, and whether
+     * a shift joined hours late counts at all is a judgement for a person, not
+     * a consequence of the tasker pressing a button.
+     */
+    public static function markedAbsent(CarbonInterface $businessDate, string $statusLabel): self
+    {
+        return new self(
+            "You were marked {$statusLabel} for the shift of {$businessDate->format('M j, Y')}, so this shift is closed. Ask an administrator if this is wrong.",
+            'attendance.marked_absent',
+            Response::HTTP_CONFLICT,
+            ['business_date' => $businessDate->toDateString(), 'status' => $statusLabel],
+        );
+    }
+
+    /**
      * The production commitment attaches to a shift, so a shift must exist.
      */
     public static function noShiftForCommitment(CarbonInterface $businessDate): self

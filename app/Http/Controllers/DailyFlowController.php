@@ -58,6 +58,11 @@ class DailyFlowController extends Controller
 
             'steps' => $state['steps'],
 
+            // The night is closed as non-attendance: absent, or on leave. The
+            // screen shows why instead of a flow, and `can_time_out` below is
+            // false for the same reason.
+            'settled' => $state['settled'],
+
             'attendance' => $state['attendance']
                 ? AttendanceResource::make($state['attendance'])->resolve()
                 : null,

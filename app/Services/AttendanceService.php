@@ -10,7 +10,7 @@ use App\Models\Attendance;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
-use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -144,6 +144,20 @@ class AttendanceService
                     throw AttendanceException::alreadyTimedIn($businessDate);
                 }
 
+                // A record with no clock-in means the night was already settled
+                // as non-attendance -- by `attendance:mark-absent` at the
+                // cutoff, or by an admin. Clocking in here would overwrite that
+                // decision with a `late`, which is how an absence quietly
+                // disappears: the roll call, the absence-warning counter and
+                // any report already filed would all silently disagree with
+                // each other afterwards.
+                if (! $existing->status->isWorked()) {
+                    throw AttendanceException::markedAbsent(
+                        $businessDate,
+                        $existing->status->label(),
+                    );
+                }
+
                 $existing->forceFill([
                     'time_in' => $now,
                     'status' => $this->resolveClockInStatus($now, $businessDate),
@@ -159,15 +173,11 @@ class AttendanceService
                     'time_in' => $now,
                     'status' => $this->resolveClockInStatus($now, $businessDate),
                 ]);
-            } catch (QueryException $e) {
+            } catch (UniqueConstraintViolationException) {
                 // Lost a race with a concurrent clock-in. The unique index on
                 // (user_id, attendance_date) is the real guarantee here; this
                 // just translates it into the business-level error.
-                if ($this->isUniqueViolation($e)) {
-                    throw AttendanceException::alreadyTimedIn($businessDate);
-                }
-
-                throw $e;
+                throw AttendanceException::alreadyTimedIn($businessDate);
             }
         });
 
@@ -355,12 +365,4 @@ class AttendanceService
         return [(int) ($parts[0] ?? 0), (int) ($parts[1] ?? 0)];
     }
 
-    /**
-     * SQLSTATE 23000 covers integrity constraint violations; MySQL/MariaDB use
-     * driver code 1062 specifically for a duplicate key.
-     */
-    private function isUniqueViolation(QueryException $e): bool
-    {
-        return $e->getCode() === '23000' && (int) ($e->errorInfo[1] ?? 0) === 1062;
-    }
 }

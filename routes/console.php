@@ -25,3 +25,14 @@ Schedule::command('attendance:close-stale')
     ->timezone(config('app.timezone'))
     ->withoutOverlapping()
     ->onOneServer();
+
+// Mark active taskers who never clocked in as absent for the night in
+// progress. Runs INSIDE the shift window, unlike the job above -- at the
+// configured time the business date still resolves to the night being marked,
+// which is the whole reason the time has to stay between shift start and shift
+// end. See the "Automatic Absence" block in config/attendance.php.
+Schedule::command('attendance:mark-absent')
+    ->dailyAt((string) config('attendance.absent_at'))
+    ->timezone(config('app.timezone'))
+    ->withoutOverlapping()
+    ->onOneServer();

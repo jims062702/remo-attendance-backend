@@ -17,7 +17,7 @@ use App\Models\User;
 use App\Models\Workstation;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
-use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -157,11 +157,8 @@ class DailyFlowService
 
         try {
             $record->save();
-        } catch (QueryException $e) {
-            if ($this->isUniqueViolation($e)) {
-                throw AttendanceException::alreadyTimedIn($businessDate);
-            }
-            throw $e;
+        } catch (UniqueConstraintViolationException) {
+            throw AttendanceException::alreadyTimedIn($businessDate);
         }
     }
 
@@ -428,15 +425,27 @@ class DailyFlowService
             ->with(['items.project', 'site', 'supportTeam'])
             ->first();
 
+        // The night was settled as non-attendance -- by attendance:mark-absent
+        // at the cutoff, or by an admin. There is nothing left for the tasker
+        // to file, and the flow says so rather than walking them through
+        // activation, a PC claim, a tracker entry and a time out for a shift
+        // they did not work. Filing a tracker entry for a night you were absent
+        // is not a form to be completed; it is a contradiction.
+        $settled = $attendance !== null && ! $attendance->status->isWorked();
+
         return [
             'business_date' => $businessDate->toDateString(),
             'attendance' => $attendance,
             'tracker' => $tracker,
+            'settled' => $settled,
             'steps' => [
-                'activation' => $attendance?->commitment_bracket !== null,
-                'clocked_in' => $attendance?->time_in !== null,
-                'tracker' => $tracker !== null,
-                'clocked_out' => $attendance?->time_out !== null,
+                // Every step reads false once the night is settled, so a client
+                // that predates this field still renders an untouched flow
+                // rather than a half-completed one.
+                'activation' => ! $settled && $attendance?->commitment_bracket !== null,
+                'clocked_in' => ! $settled && $attendance?->time_in !== null,
+                'tracker' => ! $settled && $tracker !== null,
+                'clocked_out' => ! $settled && $attendance?->time_out !== null,
             ],
             // Pre-fill the next entry from the last one, so a tasker who works
             // the same project at the same level is not re-picking identical
@@ -610,8 +619,4 @@ class DailyFlowService
         }
     }
 
-    private function isUniqueViolation(QueryException $e): bool
-    {
-        return $e->getCode() === '23000' && (int) ($e->errorInfo[1] ?? 0) === 1062;
-    }
 }

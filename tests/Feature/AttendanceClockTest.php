@@ -143,22 +143,41 @@ it('enforces one shift per business date at the database level', function (): vo
     ]);
 })->throws(Illuminate\Database\UniqueConstraintViolationException::class);
 
-it('lets a tasker clock in on a record an admin created for them', function (): void {
-    // An admin marked them absent; they then turn up and clock in. The unique
-    // index blocks an insert, so the service must update the existing row.
+it('refuses a clock-in once the tasker has been marked absent', function (): void {
+    // Recorded either by attendance:mark-absent at the cutoff or by an admin.
+    // Either way the night is settled: clocking in over the top would erase the
+    // absence, and every figure already derived from it -- the roll call, the
+    // rolling absence-warning counter, any report filed since -- would quietly
+    // stop agreeing with the record.
     Attendance::create([
         'user_id' => $this->tasker->id,
         'attendance_date' => '2026-07-26',
         'status' => AttendanceStatus::Absent,
     ]);
 
+    Date::setTestNow(CarbonImmutable::parse('2026-07-27 00:30'));
+
+    $this->actingAs($this->tasker)->postJson('/api/attendance/time-in')
+        ->assertStatus(409)
+        ->assertJsonPath('code', 'attendance.marked_absent');
+
+    expect(Attendance::count())->toBe(1);
+    expect(Attendance::first()->status)->toBe(AttendanceStatus::Absent);
+    expect(Attendance::first()->time_in)->toBeNull();
+});
+
+it('refuses a clock-in for a tasker recorded as on leave', function (): void {
+    Attendance::create([
+        'user_id' => $this->tasker->id,
+        'attendance_date' => '2026-07-26',
+        'status' => AttendanceStatus::OnLeave,
+    ]);
+
     Date::setTestNow(CarbonImmutable::parse('2026-07-26 22:05'));
 
     $this->actingAs($this->tasker)->postJson('/api/attendance/time-in')
-        ->assertCreated()
-        ->assertJsonPath('data.status', 'present');
-
-    expect(Attendance::count())->toBe(1);
+        ->assertStatus(409)
+        ->assertJsonPath('code', 'attendance.marked_absent');
 });
 
 it('reports today with correct action availability', function (): void {

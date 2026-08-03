@@ -126,6 +126,41 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Automatic Absence
+    |--------------------------------------------------------------------------
+    |
+    | The clock time at which every active tasker who has not clocked in is
+    | marked absent for the night in progress, by `attendance:mark-absent`.
+    |
+    | Before this existed, absence was something an admin had to notice and
+    | record by hand -- which meant a tasker who simply never turned up had no
+    | record at all, and the difference between "absent" and "not yet in" was
+    | whatever the admin got around to typing. The roll call could not
+    | distinguish them either.
+    |
+    | 00:00 is two hours after the 22:00 shift start and well past the grace
+    | window: long enough that traffic or a power cut has been ridden out,
+    | early enough that the night can still be re-staffed.
+    |
+    | This must sit INSIDE the shift window (between shift_start and
+    | shift_end). Outside it, resolveBusinessDate() would return a different
+    | night than the one being marked -- at 20:00, for instance, the business
+    | date has already rolled to the shift that is only just opening, and every
+    | tasker on the floor would be marked absent for a night that has not
+    | started.
+    |
+    | Marking is FINAL: see AttendanceService::timeIn(), which refuses a
+    | clock-in once a record exists. A tasker who arrives afterwards needs an
+    | admin to correct the record. That is deliberate -- a shift someone joined
+    | at 3 AM is a decision somebody should make, not one a scheduler makes by
+    | silently reopening the night.
+    |
+    */
+
+    'absent_at' => env('ATTENDANCE_ABSENT_AT', '00:00'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Absence Warning
     |--------------------------------------------------------------------------
     |

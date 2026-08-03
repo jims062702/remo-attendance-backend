@@ -35,6 +35,23 @@ echo "==> Running migrations"
 # restart re-running them is a no-op rather than a hazard.
 php artisan migrate --force
 
+echo "==> Seeding reference data and the floor plan"
+# Projects, sites, support teams and the 60 machines, then their positions on
+# the floor. Without these the tracker form has no project to pick and the PC
+# picker has no desks to show -- the daily flow is unusable, which is exactly
+# what a freshly migrated production database looked like.
+#
+# Both seeders are written to be re-run: OperationsLookupSeeder uses
+# updateOrCreate, and FloorPlanSeeder is additive by design -- it creates
+# missing machines and positions existing ones, and never deletes, renames or
+# clears a support flag an admin set by hand. Attendance rows carry a foreign
+# key to workstations, so a seeder that renumbered a desk would silently
+# rewrite where people sat on past shifts.
+php artisan db:seed --class=OperationsLookupSeeder --force \
+    || echo "!!! Reference-data seeding failed -- continuing anyway"
+php artisan db:seed --class=FloorPlanSeeder --force \
+    || echo "!!! Floor-plan seeding failed -- continuing anyway"
+
 echo "==> Ensuring administrators exist"
 # The addresses listed in AdministratorSeeder. Sign-in is Google-only and
 # accounts are never self-created, so without this a freshly migrated database

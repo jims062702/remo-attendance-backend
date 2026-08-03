@@ -19,6 +19,17 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>
+        <!--
+            Pinned to match production.
+
+            With debug on, the exception handler in bootstrap/app.php returns
+            early and every failure renders with its natural status. With it
+            off, which is how the application actually ships, unrecognised
+            exceptions are flattened to a generic 500. Those are two different
+            error surfaces, and testing only the forgiving one is how a bug
+            that turned every 422 into a 500 reached production unnoticed.
+        -->
+        <env name="APP_DEBUG" value="false"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="CACHE_STORE" value="array"/>

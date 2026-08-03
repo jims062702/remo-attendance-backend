@@ -10,6 +10,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\HandleCors;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
@@ -80,7 +81,25 @@ return Application::configure(basePath: dirname(__DIR__))
                 return null;
             }
 
-            if (config('app.debug') || $e instanceof HttpExceptionInterface) {
+            /*
+             * ValidationException is named explicitly because it is the one
+             * failure the framework reports through neither route this check
+             * recognises: it carries no HttpExceptionInterface, and unlike
+             * App\Exceptions\DomainException it has no render() of its own for
+             * Laravel to call ahead of these callbacks. Without it listed, it
+             * fell through to the generic handler below and every 422 in the
+             * application was answered with "An unexpected error occurred" and
+             * a 500 -- so no form could report which field was wrong.
+             *
+             * That only happened when APP_DEBUG was off, which is to say only
+             * in production, and the test suite never saw it because it ran
+             * with debug on. phpunit.xml now pins APP_DEBUG=false so the suite
+             * exercises the configuration that actually ships.
+             */
+            if (config('app.debug')
+                || $e instanceof HttpExceptionInterface
+                || $e instanceof ValidationException
+            ) {
                 return null;
             }
 

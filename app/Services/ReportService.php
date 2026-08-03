@@ -51,11 +51,26 @@ class ReportService
             ->selectRaw(Sql::countIf('status = ?').' AS active', [UserStatus::Active->value])
             ->first();
 
+        /*
+         * Tonight's attendance, counted per status rather than in total.
+         *
+         * The totals used to be `records` and `late` alone, which left the
+         * dashboard deriving "present" as records minus late. That silently
+         * counted every absence as an attendance: one tasker marked absent
+         * produced "Present 1" and a 100% attendance rate, because an absence
+         * IS a record. The fix is to have the database answer the question
+         * being asked instead of having the client infer it from a total that
+         * never meant what it was being used for.
+         */
         $attendanceToday = Attendance::query()
             ->where('attendance_date', $businessDate)
             ->selectRaw('COUNT(*) AS records')
             ->selectRaw(Sql::countIf('time_in IS NOT NULL AND time_out IS NULL').' AS currently_in')
+            ->selectRaw(Sql::countIf('status = ?').' AS present', [AttendanceStatus::Present->value])
             ->selectRaw(Sql::countIf('status = ?').' AS late', [AttendanceStatus::Late->value])
+            ->selectRaw(Sql::countIf('status = ?').' AS incomplete', [AttendanceStatus::Incomplete->value])
+            ->selectRaw(Sql::countIf('status = ?').' AS absent', [AttendanceStatus::Absent->value])
+            ->selectRaw(Sql::countIf('status = ?').' AS on_leave', [AttendanceStatus::OnLeave->value])
             ->selectRaw('COALESCE(SUM(total_hours), 0) AS total_hours')
             ->first();
 
@@ -108,9 +123,25 @@ class ReportService
             'shift_end' => $this->attendance->scheduledEnd(CarbonImmutable::parse($businessDate))->toDateTimeString(),
             'total_taskers' => (int) ($taskerCounts->total ?? 0),
             'active_taskers' => (int) ($taskerCounts->active ?? 0),
+            // Every record filed for tonight, whatever it says. Kept because
+            // "how many rows exist" is still a real question -- it is just not
+            // the same question as "how many people turned up".
             'attendance_today' => (int) ($attendanceToday->records ?? 0),
             'currently_timed_in' => (int) ($attendanceToday->currently_in ?? 0),
+
+            'present_today' => (int) ($attendanceToday->present ?? 0),
             'late_today' => (int) ($attendanceToday->late ?? 0),
+            'incomplete_today' => (int) ($attendanceToday->incomplete ?? 0),
+            'absent_today' => (int) ($attendanceToday->absent ?? 0),
+            'on_leave_today' => (int) ($attendanceToday->on_leave ?? 0),
+
+            // The three statuses that mean the person actually worked -- the
+            // honest numerator for an attendance rate. See
+            // AttendanceStatus::isWorked(), which this mirrors.
+            'worked_today' => (int) ($attendanceToday->present ?? 0)
+                + (int) ($attendanceToday->late ?? 0)
+                + (int) ($attendanceToday->incomplete ?? 0),
+
             'total_hours_today' => round((float) ($attendanceToday->total_hours ?? 0), 2),
 
             // Production, as filed through the nightly flow.
@@ -191,6 +222,11 @@ class ReportService
             ->selectRaw('COALESCE(SUM(total_hours), 0) AS total_hours')
             ->selectRaw('AVG(total_hours) AS average_hours')
             ->selectRaw(Sql::countIf('status = ?').' AS late', [AttendanceStatus::Late->value])
+            // Absence is the figure the screen was missing entirely: it could
+            // report how many people were late but not how many never came,
+            // which is the more consequential of the two.
+            ->selectRaw(Sql::countIf('status = ?').' AS absent', [AttendanceStatus::Absent->value])
+            ->selectRaw(Sql::countIf('status = ?').' AS on_leave', [AttendanceStatus::OnLeave->value])
             ->selectRaw(Sql::countIf('time_in IS NOT NULL AND time_out IS NULL').' AS missing_time_out')
             ->selectRaw('COALESCE(SUM(expected_hours), 0) AS expected_hours')
             ->first();
@@ -204,6 +240,8 @@ class ReportService
             'total_hours' => $totalHours,
             'average_hours' => $row->average_hours === null ? null : round((float) $row->average_hours, 2),
             'late' => (int) ($row->late ?? 0),
+            'absent' => (int) ($row->absent ?? 0),
+            'on_leave' => (int) ($row->on_leave ?? 0),
             'missing_time_out' => (int) ($row->missing_time_out ?? 0),
             'expected_hours' => $expectedHours,
             'variance' => round($totalHours - $expectedHours, 2),
