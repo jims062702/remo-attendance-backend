@@ -145,9 +145,21 @@ return [
     | whatever the admin got around to typing. The roll call could not
     | distinguish them either.
     |
-    | 00:00 is two hours after the 22:00 shift start and well past the grace
-    | window: long enough that traffic or a power cut has been ridden out,
-    | early enough that the night can still be re-staffed.
+    | 00:01 is just past two hours after the 22:00 shift start and well past
+    | the grace window: long enough that traffic or a power cut has been ridden
+    | out, early enough that the night can still be re-staffed.
+    |
+    | The odd minute is deliberate rather than cosmetic. At exactly 00:00 the
+    | cutoff and the calendar rollover are the same instant, and "did this
+    | clock-in land before or after midnight" becomes a question about which
+    | of two things the server did first. A minute later, a tasker who clocked
+    | in at 23:59 is unambiguously inside the window and one who has not is
+    | unambiguously outside it.
+    |
+    | Marking only ever affects taskers with NO attendance row. Anyone already
+    | clocked in -- present, or late but inside the window -- is untouched and
+    | keeps the full flow: they can still file a tracker entry and time out
+    | long after this has run. See MarkAbsentTaskers::handle().
     |
     | This must sit INSIDE the shift window (between shift_start and
     | shift_end). Outside it, resolveBusinessDate() would return a different
@@ -164,7 +176,7 @@ return [
     |
     */
 
-    'absent_at' => env('ATTENDANCE_ABSENT_AT', '00:00'),
+    'absent_at' => env('ATTENDANCE_ABSENT_AT', '00:01'),
 
     /*
     |--------------------------------------------------------------------------

@@ -18,8 +18,8 @@ use Illuminate\Support\Facades\Date;
  * would mark the whole floor absent for a shift that has not started.
  */
 beforeEach(function (): void {
-    // 00:00 on Jul 27 is inside the shift that began 22:00 on Jul 26.
-    Date::setTestNow(CarbonImmutable::parse('2026-07-27 00:00'));
+    // 00:01 on Jul 27 is inside the shift that began 22:00 on Jul 26.
+    Date::setTestNow(CarbonImmutable::parse('2026-07-27 00:01'));
 });
 
 afterEach(function (): void {
@@ -157,6 +157,102 @@ it('leaves the flow open for a tasker who worked', function (): void {
         ->assertOk()
         ->assertJsonPath('data.settled', false)
         ->assertJsonPath('data.steps.clocked_in', true);
+});
+
+it('leaves a late tasker who beat the cutoff fully enabled', function (): void {
+    // 23:59 is one minute inside the window. Late, but present -- and the
+    // distinction the whole rule turns on is whether a clock was started, not
+    // whether it was started on time.
+    $tasker = tasker();
+
+    Attendance::create([
+        'user_id' => $tasker->id,
+        'attendance_date' => '2026-07-26',
+        'time_in' => CarbonImmutable::parse('2026-07-26 23:59'),
+        'status' => AttendanceStatus::Late,
+    ]);
+
+    $this->artisan('attendance:mark-absent')->assertSuccessful();
+
+    expect(Attendance::where('user_id', $tasker->id)->first()->status)
+        ->toBe(AttendanceStatus::Late);
+
+    $this->actingAs($tasker)->getJson('/api/daily/state')
+        ->assertOk()
+        ->assertJsonPath('data.settled', false)
+        ->assertJsonPath('data.can_time_out', true);
+});
+
+it('lets a tasker who clocked in keep filing after the cutoff', function (): void {
+    // The cutoff settles the night for people who never arrived. It must not
+    // touch anyone mid-shift: at 00:01 a tasker on the floor still has a
+    // tracker entry to file and a clock to close.
+    $site = App\Models\Site::create(['name' => 'BEAMO 3F C', 'is_active' => true]);
+    $pc = App\Models\Workstation::create([
+        'name' => 'PC-06 3F C', 'site_id' => $site->id, 'is_active' => true,
+    ]);
+    $project = App\Models\Project::create(['code' => 'sky_feather', 'is_active' => true]);
+
+    $tasker = tasker();
+
+    Attendance::create([
+        'user_id' => $tasker->id,
+        'workstation_id' => $pc->id,
+        'attendance_date' => '2026-07-26',
+        'time_in' => CarbonImmutable::parse('2026-07-26 22:05'),
+        'status' => AttendanceStatus::Present,
+        'commitment_bracket' => '7_plus_hours',
+    ]);
+
+    $this->artisan('attendance:mark-absent')->assertSuccessful();
+
+    // Tracker entry, after the cutoff.
+    $this->actingAs($tasker)->postJson('/api/daily/tracker', [
+        'tenurity' => 'expert',
+        'items' => [[
+            'project_id' => $project->id,
+            'tasker_level' => 'l8',
+            'total_tasks' => 42,
+            'task_ids' => 'TASK1, TASK2 (SBQ)',
+            'task_complexity' => 'mid_scene_frames',
+            'screenshot_links' => 'https://drive.example.com/a',
+        ]],
+        'remarks' => 'N/A',
+    ])->assertCreated();
+
+    // And the clock still closes.
+    $this->actingAs($tasker)->postJson('/api/attendance/time-out')->assertOk();
+
+    expect(Attendance::where('user_id', $tasker->id)->first()->time_out)->not->toBeNull();
+});
+
+it('re-enables everything once the business date rolls over', function (): void {
+    // The absence settles ONE night. Nothing carries it forward, because the
+    // flow is derived from the attendance row for the business date in
+    // progress -- so 21:50 reopens it without anything having to reset.
+    $tasker = tasker();
+
+    $this->artisan('attendance:mark-absent')->assertSuccessful();
+
+    $this->actingAs($tasker)->getJson('/api/daily/state')
+        ->assertJsonPath('data.settled', true)
+        ->assertJsonPath('data.business_date', '2026-07-26');
+
+    // One minute before the rollover: still last night, still settled.
+    Date::setTestNow(CarbonImmutable::parse('2026-07-27 21:49'));
+
+    $this->actingAs($tasker)->getJson('/api/daily/state')
+        ->assertJsonPath('data.settled', true)
+        ->assertJsonPath('data.business_date', '2026-07-26');
+
+    // At the rollover: a new night, an empty flow.
+    Date::setTestNow(CarbonImmutable::parse('2026-07-27 21:50'));
+
+    $this->actingAs($tasker)->getJson('/api/daily/state')
+        ->assertJsonPath('data.settled', false)
+        ->assertJsonPath('data.business_date', '2026-07-27')
+        ->assertJsonPath('data.steps.activation', false)
+        ->assertJsonPath('data.steps.clocked_in', false);
 });
 
 it('counts an absence as absent on the admin dashboard, not present', function (): void {
