@@ -61,6 +61,14 @@ return [
             // ],
         ],
 
+        // Registered by AppServiceProvider::registerBrevoMailer(), because
+        // Laravel has no first-party Brevo transport. Talks HTTPS, which is
+        // the whole point: this host blocks outbound SMTP.
+        'brevo' => [
+            'transport' => 'brevo',
+            'key' => env('BREVO_KEY'),
+        ],
+
         'resend' => [
             'transport' => 'resend',
         ],

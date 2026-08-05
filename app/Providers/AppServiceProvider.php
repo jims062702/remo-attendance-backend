@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Mail\Transport\BrevoTransport;
 use App\Services\ActivityLogger;
 use App\Services\AttendanceService;
 use App\Services\DailyFlowService;
 use App\Services\ReportService;
 use App\Services\TaskService;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
+use InvalidArgumentException;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -40,6 +43,30 @@ class AppServiceProvider extends ServiceProvider
         Model::preventSilentlyDiscardingAttributes(! $this->app->isProduction());
 
         $this->configureRateLimiting();
+        $this->registerBrevoMailer();
+    }
+
+    /**
+     * Register the Brevo transport under the "brevo" mailer name.
+     *
+     * Laravel ships transports for Resend, Postmark, SES and Mailgun but not
+     * for Brevo, so the driver has to be taught. Everything else -- queueing,
+     * the Mailable API, Mail::fake() in tests -- is unchanged by this.
+     */
+    private function registerBrevoMailer(): void
+    {
+        Mail::extend('brevo', function (array $config = []): BrevoTransport {
+            $key = $config['key'] ?? config('services.brevo.key');
+
+            if (blank($key)) {
+                // Better than an opaque 401 from the API on the first send.
+                throw new InvalidArgumentException(
+                    'The Brevo mailer is selected but BREVO_KEY is not set.',
+                );
+            }
+
+            return new BrevoTransport((string) $key);
+        });
     }
 
     /**

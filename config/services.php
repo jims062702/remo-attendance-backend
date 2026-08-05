@@ -28,6 +28,26 @@ return [
         'key' => env('RESEND_KEY'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Brevo
+    |--------------------------------------------------------------------------
+    |
+    | The transactional email provider this deployment actually uses. Sending
+    | happens over Brevo's HTTPS API rather than SMTP because the host blocks
+    | outbound mail ports -- see App\Mail\Transport\BrevoTransport.
+    |
+    | Brevo was chosen over Resend and Postmark for one reason: it verifies a
+    | single sender ADDRESS. The others require a verified domain, and this
+    | deployment has none -- the frontend is a vercel.app subdomain whose DNS
+    | belongs to Vercel.
+    |
+    */
+
+    'brevo' => [
+        'key' => env('BREVO_KEY'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
