@@ -164,6 +164,65 @@ it('lets the shift be deleted once its submission is gone', function (): void {
     expect(Attendance::withTrashed()->count())->toBe(0);
 });
 
+// ----------------------------------------------------------------- Accounts
+
+it('deletes a deactivated account that never worked, freeing the address', function (): void {
+    // The case this exists for: an account added by mistake. Deactivating keeps
+    // the row, and the row keeps the address -- users.email is unique, so until
+    // the row goes the address cannot be used again.
+    $spare = tasker(['name' => 'Typo Account', 'email' => 'typo@test.local']);
+
+    $this->actingAs($this->admin)->deleteJson("/api/admin/taskers/{$spare->id}")->assertOk();
+
+    $this->actingAs($this->admin)
+        ->deleteJson("/api/admin/taskers/{$spare->id}/permanent")
+        ->assertOk();
+
+    expect(App\Models\User::withTrashed()->find($spare->id))->toBeNull();
+
+    // And the address is genuinely free, which is the whole point.
+    $this->actingAs($this->admin)->postJson('/api/admin/taskers', [
+        'name' => 'The Real Person',
+        'email' => 'typo@test.local',
+    ])->assertCreated();
+});
+
+it('refuses to delete an account that owns a shift', function (): void {
+    bareShift($this->tasker);
+
+    $this->actingAs($this->admin)->deleteJson("/api/admin/taskers/{$this->tasker->id}")->assertOk();
+
+    $this->actingAs($this->admin)
+        ->deleteJson("/api/admin/taskers/{$this->tasker->id}/permanent")
+        ->assertStatus(409)
+        ->assertJsonPath('code', 'tasker.has_records');
+
+    // Still there, still deactivated -- business rule 10 holds.
+    expect(App\Models\User::withTrashed()->find($this->tasker->id))->not->toBeNull();
+});
+
+it('refuses to delete an account that is still active', function (): void {
+    // Deactivating is reversible and this is not, so the irreversible step is
+    // never one click away from a live roster.
+    $this->actingAs($this->admin)
+        ->deleteJson("/api/admin/taskers/{$this->tasker->id}/permanent")
+        ->assertStatus(409)
+        ->assertJsonPath('code', 'tasker.still_active');
+
+    expect(App\Models\User::find($this->tasker->id))->not->toBeNull();
+});
+
+it('refuses a tasker the account delete', function (): void {
+    $spare = tasker(['email' => 'spare@test.local']);
+    $this->actingAs($this->admin)->deleteJson("/api/admin/taskers/{$spare->id}")->assertOk();
+
+    $this->actingAs($this->tasker)
+        ->deleteJson("/api/admin/taskers/{$spare->id}/permanent")
+        ->assertForbidden();
+
+    expect(App\Models\User::withTrashed()->find($spare->id))->not->toBeNull();
+});
+
 it('refuses a tasker the submission delete', function (): void {
     $entry = TrackerEntry::create([
         'user_id' => $this->tasker->id,

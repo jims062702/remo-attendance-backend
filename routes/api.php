@@ -100,6 +100,12 @@ Route::middleware(['auth:sanctum', 'active'])->group(function (): void {
         // targets is soft deleted and would not resolve through route binding.
         Route::post('taskers/{tasker}/restore', [TaskerController::class, 'restore'])
             ->whereNumber('tasker')->name('taskers.restore');
+
+        // Permanent removal, which frees the email address. Distinct from the
+        // apiResource DELETE below: that one deactivates. Refused unless the
+        // account is already deactivated and owns no records at all.
+        Route::delete('taskers/{tasker}/permanent', [TaskerController::class, 'forceDestroy'])
+            ->whereNumber('tasker')->name('taskers.force-destroy');
         Route::get('taskers/{tasker}/summary', [TaskerController::class, 'summary'])->name('taskers.summary');
         Route::apiResource('taskers', TaskerController::class);
 

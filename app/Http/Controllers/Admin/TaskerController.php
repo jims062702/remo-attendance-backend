@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
+use App\Exceptions\TaskerException;
 use App\Http\Controllers\Concerns\ApiResponses;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\AttendanceIndexRequest;
@@ -208,6 +209,75 @@ class TaskerController extends Controller
         );
 
         return $this->ok(null, "{$tasker->name} deactivated. Their records have been kept.");
+    }
+
+    /**
+     * Remove a deactivated account for good.
+     *
+     * Deactivating soft deletes, which keeps the row -- and the row keeps the
+     * email address, because `users.email` is unique at the database level.
+     * That is right for someone who might come back and wrong for an account
+     * created by mistake: the address stays spent, and re-adding it is refused
+     * by StoreTaskerRequest with an instruction to restore instead.
+     *
+     * This is the third answer. It frees the address, and it is offered only
+     * when nothing in the system belongs to the person -- see
+     * TaskerException::hasRecords(). An account that has worked a single night
+     * is never deletable, by design.
+     */
+    public function forceDestroy(Request $request, int $tasker): JsonResponse
+    {
+        /** @var User $account */
+        $account = User::withTrashed()->findOrFail($tasker);
+
+        $this->authorize('delete', $account);
+
+        // The UI only offers this on a deactivated row; the service enforces
+        // it, because a screen is not a permission system.
+        if (! $account->trashed()) {
+            throw TaskerException::mustDeactivateFirst($account->name);
+        }
+
+        $records = array_values(array_filter([
+            $this->countOwned($account, 'attendances', 'shift'),
+            $this->countOwned($account, 'tracker_entries', 'submission'),
+            $this->countOwned($account, 'tasks', 'extra task'),
+        ]));
+
+        if ($records !== []) {
+            throw TaskerException::hasRecords($account->name, $records);
+        }
+
+        $snapshot = ['name' => $account->name, 'email' => $account->email];
+
+        $account->forceDelete();
+
+        // No subject: it no longer exists. The snapshot is all that survives.
+        $this->logger->log(
+            'tasker.deleted',
+            "Deleted the account {$snapshot['email']}",
+            null,
+            $snapshot,
+            $request->user(),
+        );
+
+        return $this->ok(
+            $snapshot,
+            "{$snapshot['name']} deleted. The address is free to use again.",
+        );
+    }
+
+    /**
+     * @return array{noun: string, count: int}|null
+     */
+    private function countOwned(User $account, string $table, string $noun): ?array
+    {
+        // Raw counts rather than relations: soft-deleted rows still hold the
+        // foreign key, so a "deleted" shift would still block the delete at
+        // the database and has to block it here too.
+        $count = DB::table($table)->where('user_id', $account->id)->count();
+
+        return $count > 0 ? ['noun' => $noun, 'count' => $count] : null;
     }
 
     public function restore(Request $request, int $tasker): JsonResponse
