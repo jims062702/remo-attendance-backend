@@ -24,6 +24,20 @@
     // link at all.
     $siteUrl = rtrim((string) config('app.frontend_url'), '/');
     $subjectLine ??= $heading;
+
+    /*
+     * The logo, served from the frontend rather than attached.
+     *
+     * Three ways to put an image in an email, and only this one works
+     * everywhere: a data: URI is stripped by Gmail, and a CID attachment
+     * depends on the transport forwarding inline parts with their content-id
+     * intact -- which the hand-written Brevo transport does not promise.
+     *
+     * A hosted URL costs one thing: clients that block remote images show
+     * nothing until the reader allows them. That is what the alt text is for,
+     * and why it says the product name rather than "logo".
+     */
+    $logoUrl = $siteUrl.'/logo.png';
 @endphp
 
 <!DOCTYPE html>
@@ -48,11 +62,20 @@
 
                 <tr>
                     <td style="padding:24px 28px 0 28px;">
-                        <p style="margin:0; font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-                                  font-size:12px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase;
-                                  color:#6f6d67;">
-                            {{ config('app.name') }}
-                        </p>
+                        {{-- Width and height are attributes as well as styles.
+                             Outlook ignores CSS dimensions on images and will
+                             draw the file at its natural size, which for this
+                             artwork is wide enough to break the layout. The
+                             height follows the mark's 4.51:1 aspect. --}}
+                        <a href="{{ $siteUrl }}" style="text-decoration:none;">
+                            <img src="{{ $logoUrl }}"
+                                 alt="{{ config('app.name') }}"
+                                 width="150" height="33"
+                                 style="display:block; width:150px; height:33px; border:0;
+                                        font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+                                        font-size:12px; font-weight:700; letter-spacing:0.1em;
+                                        text-transform:uppercase; color:#6f6d67;">
+                        </a>
                     </td>
                 </tr>
 

@@ -231,6 +231,29 @@ it('carries the site link in every message', function (): void {
     }
 });
 
+it('shows the logo, and the product name when images are blocked', function (): void {
+    // Remote images are blocked by default in a lot of clients, so the alt
+    // text is not decoration -- it is what most first-time recipients actually
+    // see. It says the product name for that reason, never "logo".
+    config(['app.frontend_url' => 'https://remoattendancebeamo.vercel.app']);
+
+    $attendance = Attendance::create([
+        'user_id' => tasker()->id,
+        'attendance_date' => '2026-07-26',
+        'time_in' => CarbonImmutable::parse('2026-07-26 22:05'),
+        'status' => AttendanceStatus::Present,
+    ]);
+
+    $html = (new ClockedInMail($attendance))->render();
+
+    expect($html)
+        ->toContain('https://remoattendancebeamo.vercel.app/logo.png')
+        ->toContain('alt="'.config('app.name').'"')
+        // Dimensions as attributes, not only as CSS: Outlook ignores the CSS
+        // and draws the file at its natural width.
+        ->toContain('width="150"');
+});
+
 it('does not fail a clock-in when the mailer is broken', function (): void {
     // The shift is recorded before the message is attempted. A mail server
     // having a bad minute must not hand back an error for something that has
