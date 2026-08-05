@@ -76,8 +76,16 @@ php artisan db:seed --class=AdministratorSeeder --force \
 # start-up and prints the outcome, including the exception in full, straight
 # into this deploy log.
 #
-# Remove the variable once mail is working. It is harmless but sends a message
-# on every deploy.
+# REMOVE THE VARIABLE ONCE MAIL IS WORKING. This runs BEFORE supervisord, so
+# whatever it costs is added to every boot -- and a failing send costs the
+# transport's full timeout. That is how a broken SMTP configuration turned into
+# a minute of "No open ports detected, continuing to scan..." on every deploy:
+# nginx had not started yet because this was still waiting on a socket that was
+# never going to answer.
+#
+# It stays before supervisord on purpose. A diagnostic that runs after the
+# thing it is diagnosing is no diagnostic at all -- but it is meant to be
+# switched on to answer a question and switched off again.
 if [ -n "${MAIL_TEST_TO:-}" ]; then
     echo "==> Testing mail delivery to ${MAIL_TEST_TO}"
     php artisan mail:test "${MAIL_TEST_TO}" \

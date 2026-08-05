@@ -48,6 +48,21 @@ RUN { \
         echo 'memory_limit=256M'; \
     } > /usr/local/etc/php/conf.d/uploads.ini
 
+# php-fpm on the loopback only.
+#
+# The base image ships zz-docker.conf with `listen = 9000`, which binds every
+# interface -- so the container exposes a second, unauthenticated FastCGI port
+# alongside nginx. Render's port scanner reports it ("additional ports
+# TCP:9000") and the file sorts after zz-docker.conf so this wins.
+#
+# nginx already connects to 127.0.0.1:9000, so nothing about the request path
+# changes; the port simply stops being reachable from outside the container,
+# which is what the Dockerfile header claimed all along.
+RUN { \
+        echo '[www]'; \
+        echo 'listen = 127.0.0.1:9000'; \
+    } > /usr/local/etc/php-fpm.d/zzz-listen.conf
+
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /var/www/html
