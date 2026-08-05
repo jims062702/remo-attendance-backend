@@ -26,6 +26,16 @@ Schedule::command('attendance:close-stale')
     ->withoutOverlapping()
     ->onOneServer();
 
+// Close shifts still running at the scheduled shift end, for the tasker who
+// worked the night and forgot the button. Runs INSIDE the shift window for the
+// same reason as mark-absent below: at 06:00 the business date still resolves
+// to the night that is ending, not to the one that has yet to open.
+Schedule::command('attendance:auto-time-out')
+    ->dailyAt((string) config('attendance.auto_time_out_at'))
+    ->timezone(config('app.timezone'))
+    ->withoutOverlapping()
+    ->onOneServer();
+
 // Mark active taskers who never clocked in as absent for the night in
 // progress. Runs INSIDE the shift window, unlike the job above -- at the
 // configured time the business date still resolves to the night being marked,

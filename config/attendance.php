@@ -133,6 +133,33 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Automatic Time Out
+    |--------------------------------------------------------------------------
+    |
+    | The clock time at which `attendance:auto-time-out` closes any shift still
+    | running for the night in progress. Set to shift_end: a tasker who forgot
+    | to clock out is presumed to have worked to the end of their shift, which
+    | is the one defensible assumption available -- it is the hours they were
+    | scheduled for, not a number invented to fill the column.
+    |
+    | The status is deliberately NOT changed. Someone who turned up on time and
+    | forgot a button is still `present`; someone who was late is still `late`.
+    | Both keep the full flow afterwards and can still file a tracker entry,
+    | because forgetting to clock out says nothing about whether they produced
+    | anything. Only the notes record that the clock was closed for them, so an
+    | admin can tell a measured shift from an assumed one.
+    |
+    | This does NOT replace `attendance:close-stale`. That still runs, and
+    | still marks shifts from EARLIER business dates as incomplete -- it is the
+    | safety net for the nights this job did not run at all, and for anyone who
+    | clocked in after it had already passed.
+    |
+    */
+
+    'auto_time_out_at' => env('ATTENDANCE_AUTO_TIME_OUT_AT', '06:00'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Automatic Absence
     |--------------------------------------------------------------------------
     |
