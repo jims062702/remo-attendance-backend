@@ -82,6 +82,58 @@ it('deactivates a tasker without destroying their history', function (): void {
         ->and(User::withTrashed()->find($tasker->id)->status)->toBe(UserStatus::Inactive);
 });
 
+it('reports nightly tracker production on the tasker detail page', function (): void {
+    /*
+     * The page read `tasks` -- the optional Extra Tasks screen -- under both
+     * "Productivity summary" and "Recent submissions", and nothing at all read
+     * tracker_entries. A tasker who had filed every night through the normal
+     * flow therefore showed no production whatsoever.
+     */
+    $site = App\Models\Site::create(['name' => 'BEAMO 3F C', 'is_active' => true]);
+    $pc = App\Models\Workstation::create([
+        'name' => 'PC-06 3F C', 'site_id' => $site->id, 'is_active' => true,
+    ]);
+    $project = App\Models\Project::create(['code' => 'sky_feather', 'is_active' => true]);
+
+    $tasker = tasker();
+
+    Illuminate\Support\Facades\Date::setTestNow(
+        Carbon\CarbonImmutable::parse('2026-07-26 22:05'),
+    );
+
+    $this->actingAs($tasker)->postJson('/api/daily/activate', [
+        'commitment_bracket' => '7_plus_hours',
+        'tasking_statuses' => ['tasking'],
+        'workstation_id' => $pc->id,
+        'pc_status' => 'used',
+    ])->assertCreated();
+
+    $this->actingAs($tasker)->postJson('/api/daily/tracker', [
+        'tenurity' => 'expert',
+        'items' => [[
+            'project_id' => $project->id,
+            'tasker_level' => 'l8',
+            'total_tasks' => 42,
+            'task_ids' => 'TASK1, TASK2 (SBQ)',
+            'task_complexity' => 'mid_scene_frames',
+            'screenshot_links' => 'https://drive.example.com/a',
+        ]],
+        'remarks' => 'N/A',
+    ])->assertCreated();
+
+    $response = $this->actingAs($this->admin)
+        ->getJson("/api/admin/taskers/{$tasker->id}/summary")
+        ->assertOk();
+
+    expect($response->json('data.summary.production.nights_filed'))->toBe(1)
+        ->and($response->json('data.summary.production.total_tasks'))->toBe(42)
+        ->and($response->json('data.recent_entries'))->toHaveCount(1)
+        // And the Extra Tasks page really is empty -- it was never used.
+        ->and($response->json('data.recent_tasks'))->toBe([]);
+
+    Illuminate\Support\Facades\Date::setTestNow();
+});
+
 it('lists deactivated taskers when the roster asks for them', function (): void {
     // The filter the "Show deactivated" checkbox drives. It was unreachable
     // from the UI: the client serialised the boolean as the string "true", and

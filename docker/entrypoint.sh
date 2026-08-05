@@ -68,5 +68,21 @@ echo "==> Ensuring administrators exist"
 php artisan db:seed --class=AdministratorSeeder --force \
     || echo "!!! Administrator seeding failed -- continuing anyway"
 
+# Mail diagnosis, on demand.
+#
+# The shift notifications are queued, so a failure happens in the worker
+# minutes later and never reaches a browser -- and a free instance has no shell
+# to go looking with. Setting MAIL_TEST_TO sends one message synchronously at
+# start-up and prints the outcome, including the exception in full, straight
+# into this deploy log.
+#
+# Remove the variable once mail is working. It is harmless but sends a message
+# on every deploy.
+if [ -n "${MAIL_TEST_TO:-}" ]; then
+    echo "==> Testing mail delivery to ${MAIL_TEST_TO}"
+    php artisan mail:test "${MAIL_TEST_TO}" \
+        || echo "!!! Mail test failed -- see the output above for the reason"
+fi
+
 echo "==> Starting php-fpm and nginx"
 exec supervisord -c /etc/supervisord.conf

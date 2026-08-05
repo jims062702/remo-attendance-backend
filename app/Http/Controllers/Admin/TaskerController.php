@@ -14,7 +14,9 @@ use App\Http\Requests\Admin\TaskerIndexRequest;
 use App\Http\Requests\Admin\UpdateTaskerRequest;
 use App\Http\Resources\AttendanceResource;
 use App\Http\Resources\TaskResource;
+use App\Http\Resources\TrackerEntryResource;
 use App\Http\Resources\UserResource;
+use App\Models\TrackerEntry;
 use App\Models\User;
 use App\Services\AbsenceRiskService;
 use App\Services\ActivityLogger;
@@ -253,6 +255,32 @@ class TaskerController extends Controller
             ->limit(30)
             ->get();
 
+        /*
+         * The nightly tracker entries -- which is what this tasker actually
+         * filed, and what was missing from this page entirely.
+         *
+         * The screen showed `tasks` under both "Productivity summary" and
+         * "Recent submissions". That table is the separate, optional Extra
+         * Tasks page; essentially all production is declared through the
+         * nightly flow, which writes tracker_entries. So a tasker who had
+         * worked and filed every night still read as having produced nothing.
+         *
+         * The same mistake was found and fixed on the admin dashboard (see
+         * ReportService::adminDashboard); this page was missed. The product's
+         * own vocabulary settles it: the admin "Submissions" screen lists
+         * tracker entries, so a panel labelled "Recent submissions" has to
+         * mean the same thing.
+         */
+        $entries = TrackerEntry::query()
+            ->where('user_id', $tasker->id)
+            ->when($filters['from'] ?? null, fn ($q, $from) => $q->where('entry_date', '>=', $from))
+            ->when($filters['to'] ?? null, fn ($q, $to) => $q->where('entry_date', '<=', $to))
+            ->with(['items.project', 'site', 'supportTeam'])
+            ->orderByDesc('entry_date')
+            ->orderByDesc('id')
+            ->limit(30)
+            ->get();
+
         return $this->ok([
             'user' => UserResource::make($tasker)->resolve(),
             'summary' => $this->reports->taskerSummary($tasker, $request->filters()),
@@ -262,6 +290,7 @@ class TaskerController extends Controller
             // widening a date picker would appear to put someone at risk.
             'absence_risk' => $this->risk->payload($this->risk->countFor($tasker->id)),
             'recent_attendance' => AttendanceResource::collection($attendance)->resolve(),
+            'recent_entries' => TrackerEntryResource::collection($entries)->resolve(),
             'recent_tasks' => TaskResource::collection($tasks)->resolve(),
         ]);
     }
