@@ -64,8 +64,15 @@ class DailyFlowService
         $now = $at ? CarbonImmutable::instance($at) : CarbonImmutable::now();
         $businessDate = $this->attendance->resolveBusinessDate($now);
 
+        // Set inside the transaction, read after it. Activation is re-submitted
+        // every time a tasker changes desk or fixes a bracket, and only the
+        // submission that actually starts the clock is worth an email -- one
+        // per PC switch would make the confirmation worthless.
+        $startedTheClock = false;
+
         $attendance = DB::transaction(function () use (
-            $user, $bracket, $taskingStatuses, $workstationId, $pcStatus, $now, $businessDate
+            $user, $bracket, $taskingStatuses, $workstationId, $pcStatus, $now, $businessDate,
+            &$startedTheClock
         ): Attendance {
             $record = Attendance::query()
                 ->where('user_id', $user->id)
@@ -108,6 +115,7 @@ class DailyFlowService
                 if ($record->time_in === null) {
                     $record->time_in = $now;
                     $record->status = $this->attendance->resolveClockInStatus($now, $businessDate);
+                    $startedTheClock = true;
                 }
             } else {
                 $record->status = $bracket->impliedAttendanceStatus() ?? AttendanceStatus::Absent;
@@ -135,6 +143,10 @@ class DailyFlowService
             ],
             $user,
         );
+
+        if ($startedTheClock) {
+            $this->attendance->mailClockIn($attendance);
+        }
 
         return $attendance->load(['workstation.site', 'taskingStatuses']);
     }

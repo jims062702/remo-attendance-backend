@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Enums\AttendanceStatus;
 use App\Exceptions\AttendanceException;
+use App\Mail\ClockedInMail;
 use App\Models\Attendance;
 use App\Models\User;
 use Carbon\CarbonImmutable;
@@ -13,6 +14,8 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
+use Throwable;
 
 /**
  * All attendance business logic. Controllers call into this and do no
@@ -190,6 +193,8 @@ class AttendanceService
             $user,
         );
 
+        $this->mailClockIn($attendance);
+
         return $attendance;
     }
 
@@ -302,6 +307,33 @@ class AttendanceService
      * @throws AttendanceException when time out precedes time in, or the span
      *                             exceeds the configured maximum.
      */
+    /**
+     * Send the clock-in confirmation, and never let it cost the clock-in.
+     *
+     * Public because activation is the other door into the same clock --
+     * claiming a machine IS clocking in -- and both doors owe the tasker the
+     * same message.
+     *
+     * Failures are reported and swallowed, the same way the audit log treats
+     * its own. The shift is recorded by the time this runs; a mail server
+     * having a bad minute is not a reason to hand back an error for something
+     * that already succeeded.
+     */
+    public function mailClockIn(Attendance $attendance): void
+    {
+        $email = $attendance->user?->email ?? $attendance->loadMissing('user')->user?->email;
+
+        if ($email === null) {
+            return;
+        }
+
+        try {
+            Mail::to($email)->send(new ClockedInMail($attendance));
+        } catch (Throwable $e) {
+            report($e);
+        }
+    }
+
     public function computeHours(CarbonInterface $timeIn, CarbonInterface $timeOut): float
     {
         $seconds = $timeOut->getTimestamp() - $timeIn->getTimestamp();

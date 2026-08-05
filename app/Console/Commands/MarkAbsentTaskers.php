@@ -7,12 +7,15 @@ namespace App\Console\Commands;
 use App\Enums\AttendanceStatus;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
+use App\Mail\MarkedAbsentMail;
 use App\Models\Attendance;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use App\Services\AttendanceService;
 use Illuminate\Console\Command;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Mail;
+use Throwable;
 
 /**
  * Marks every active tasker who has not clocked in as absent for the night.
@@ -93,6 +96,16 @@ class MarkAbsentTaskers extends Command
                 ]);
 
                 $marked[] = $record->id;
+
+                // Told the same night, while an admin can still correct it.
+                // An absence someone discovers a week later in a report is a
+                // dispute; one they hear about at 12:01 is a phone call.
+                try {
+                    $record->setRelation('user', $tasker);
+                    Mail::to($tasker->email)->send(new MarkedAbsentMail($record));
+                } catch (Throwable $e) {
+                    report($e);
+                }
             } catch (UniqueConstraintViolationException) {
                 // Lost a race with a clock-in that landed between the query
                 // above and this insert. The unique index on

@@ -11,7 +11,12 @@ use App\Models\User;
 use Carbon\CarbonImmutable;
 
 beforeEach(function (): void {
-    $this->admin = admin(['name' => 'Maria Santos']);
+    // The email is pinned, not just the name. The roster endpoint does not
+    // filter by role, and its search matches email as well as name -- so a
+    // factory-random address is a random extra row in every search assertion
+    // below. This failed intermittently for exactly that reason: a generated
+    // address containing "dela" made the "Juan Dela Cruz" search return two.
+    $this->admin = admin(['name' => 'Maria Santos', 'email' => 'maria.santos@test.local']);
 });
 
 // ------------------------------------------------------------ Tasker management

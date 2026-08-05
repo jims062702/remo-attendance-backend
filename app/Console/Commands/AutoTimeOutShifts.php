@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Mail\ShiftNotClosedMail;
 use App\Models\Attendance;
 use App\Services\ActivityLogger;
 use App\Services\AttendanceService;
 use App\Services\DailyFlowService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Mail;
+use Throwable;
 
 /**
  * Closes shifts still running at the end of the night.
@@ -101,6 +104,17 @@ class AutoTimeOutShifts extends Command
             ])->save();
 
             $closed[] = $record->id;
+
+            // The message also asks for the tracker entry, which someone who
+            // forgot to time out has usually not filed either -- it checks
+            // before asking, so nobody is chased for work already done.
+            if ($record->user?->email !== null) {
+                try {
+                    Mail::to($record->user->email)->send(new ShiftNotClosedMail($record));
+                } catch (Throwable $e) {
+                    report($e);
+                }
+            }
         }
 
         if ($closed === []) {
