@@ -149,9 +149,18 @@ class DailyFlowService
     private function saveClaimingWorkstation(Attendance $record, CarbonImmutable $businessDate): void
     {
         if ($record->workstation_id !== null) {
+            // Only an OPEN shift blocks the desk. Once the previous occupant
+            // has timed out the machine is genuinely free, and refusing it
+            // would leave a tasker standing at an empty seat the system
+            // insists is taken.
+            //
+            // whereKeyNot excludes the tasker's own row, which is what makes
+            // switching desks work: moving from PC-02 to PC-05 must not read
+            // the mover's own record as the thing occupying PC-05.
             $conflict = Attendance::query()
                 ->where('attendance_date', $businessDate->toDateString())
                 ->where('workstation_id', $record->workstation_id)
+                ->whereNull('time_out')
                 ->when($record->exists, fn ($q) => $q->whereKeyNot($record->getKey()))
                 ->with('user')
                 ->first();
@@ -541,11 +550,52 @@ class DailyFlowService
      */
     private function buildWorkstationList(string $businessDate): array
     {
+        /*
+         * A desk is held by whoever is SITTING at it, not by everyone who sat
+         * at it tonight.
+         *
+         * The time_out condition is the whole rule. Without it a machine stayed
+         * claimed for the rest of the night the moment anyone touched it, so a
+         * tasker arriving at 1 AM found a floor of occupied desks with nobody
+         * in them. Two people using one PC across a night is normal -- somebody
+         * leaves, somebody else sits down -- and the only thing that has to be
+         * true is that they are not there at the same time.
+         *
+         * Ordered so the newest open claim wins if two ever overlap: pluck()
+         * keeps the last value for a repeated key, which makes the current
+         * occupant the one displayed rather than a stale earlier row.
+         */
         $claimedBy = Attendance::query()
             ->join('users', 'users.id', '=', 'attendances.user_id')
             ->where('attendances.attendance_date', $businessDate)
             ->whereNotNull('attendances.workstation_id')
+            ->whereNull('attendances.time_out')
+            ->orderBy('attendances.time_in')
             ->pluck('users.name', 'attendances.workstation_id');
+
+        /*
+         * The shift that ended on each machine, most recent last.
+         *
+         * Ordered by time_out so a desk passed along twice reports the person
+         * who left most recently rather than whoever happened to be first --
+         * `keyBy` keeps the last row for a repeated key, which is what makes
+         * the ordering do the selecting.
+         */
+        $previous = Attendance::query()
+            ->join('users', 'users.id', '=', 'attendances.user_id')
+            ->where('attendances.attendance_date', $businessDate)
+            ->whereNotNull('attendances.workstation_id')
+            ->whereNotNull('attendances.time_out')
+            ->orderBy('attendances.time_out')
+            ->get(['attendances.workstation_id', 'users.name', 'attendances.time_out'])
+            ->keyBy('workstation_id')
+            ->map(fn ($row): array => [
+                'name' => $row->name,
+                // ISO 8601 with offset, so the client renders a local time
+                // without guessing the server's timezone -- the same contract
+                // every other timestamp in this API follows.
+                'time_out' => CarbonImmutable::parse($row->time_out)->toIso8601String(),
+            ]);
 
         /*
          * Support machines are now INCLUDED, flagged rather than omitted.
@@ -575,6 +625,15 @@ class DailyFlowService
                 'site_id' => $pc->site_id,
                 'is_claimed' => $claimedBy->has($pc->id),
                 'claimed_by' => $claimedBy->get($pc->id),
+
+                // Who had the desk before the current occupant, and when they
+                // left. Once two people can share a machine across a night,
+                // "who is here" stops being the whole answer -- a desk showing
+                // one name has a second story behind it, and an admin looking
+                // at the floor needs both to make sense of the night.
+                'previous_by' => $previous->get($pc->id)['name'] ?? null,
+                'previous_time_out' => $previous->get($pc->id)['time_out'] ?? null,
+
                 'is_support' => $pc->is_support,
                 // Null until an admin places the machine. The map skips these;
                 // the list view still shows them.

@@ -11,6 +11,7 @@ use App\Models\User;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -229,6 +230,17 @@ class AttendanceService
 
             return $attendance;
         });
+
+        // Timing out releases the desk, so the shared picker is now wrong for
+        // everyone -- exactly as it is when a desk is claimed. Without this the
+        // machine goes on looking occupied for the cache's lifetime, which is
+        // the difference between "free the moment they leave" and "free in ten
+        // seconds, maybe".
+        if ($attendance->workstation_id !== null) {
+            Cache::forget(
+                DailyFlowService::workstationCacheKey($businessDate->toDateString()),
+            );
+        }
 
         $this->logger->log(
             'attendance.time_out',
