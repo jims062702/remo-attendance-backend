@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Admin;
 
+use App\Exceptions\LookupException;
 use App\Http\Controllers\Concerns\ApiResponses;
 use App\Http\Controllers\Controller;
 use App\Models\Project;
@@ -15,6 +16,7 @@ use App\Support\Sql;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 /**
@@ -41,24 +43,39 @@ class LookupController extends Controller
             'label' => 'Project',
             'unique' => 'code',
             'with' => [],
+            // What would lose its meaning if the row disappeared. Deleting is
+            // only offered when every one of these is empty; see destroy().
+            'used_by' => [
+                ['table' => 'tracker_items', 'column' => 'project_id', 'noun' => 'tracker entry'],
+            ],
         ],
         'workstations' => [
             'model' => Workstation::class,
             'label' => 'Workstation',
             'unique' => 'name',
             'with' => ['site'],
+            'used_by' => [
+                ['table' => 'attendances', 'column' => 'workstation_id', 'noun' => 'shift'],
+            ],
         ],
         'sites' => [
             'model' => Site::class,
             'label' => 'Site',
             'unique' => 'name',
             'with' => [],
+            'used_by' => [
+                ['table' => 'workstations', 'column' => 'site_id', 'noun' => 'workstation'],
+                ['table' => 'tracker_entries', 'column' => 'site_id', 'noun' => 'tracker entry'],
+            ],
         ],
         'support-teams' => [
             'model' => SupportTeam::class,
             'label' => 'Support team',
             'unique' => 'name',
             'with' => [],
+            'used_by' => [
+                ['table' => 'tracker_entries', 'column' => 'support_team_id', 'noun' => 'tracker entry'],
+            ],
         ],
     ];
 
@@ -146,7 +163,59 @@ class LookupController extends Controller
     /**
      * Retire rather than delete, so historical entries still resolve.
      */
+    /**
+     * Delete the record outright, but only while nothing depends on it.
+     *
+     * The two halves of this are not interchangeable, and the split is the
+     * point. A workstation nobody has ever sat at is a mistake in a list and
+     * should simply go. A workstation carrying 148 shifts is part of the
+     * record of who was where, and the foreign key is nullOnDelete -- so
+     * deleting it would not fail, it would quietly blank the PC column on
+     * every one of those nights. Refusing is the only honest option, and the
+     * caller is told the count so the refusal is not a mystery.
+     *
+     * Deactivating remains available for exactly that case: the row stays,
+     * history keeps resolving, and the machine leaves the picker.
+     */
     public function destroy(Request $request, string $type, int $id): JsonResponse
+    {
+        $config = $this->config($type);
+
+        /** @var Model $record */
+        $record = $config['model']::findOrFail($id);
+
+        $blockers = $this->dependents($config, $id);
+
+        if ($blockers !== []) {
+            throw LookupException::inUse(
+                strtolower($config['label']),
+                $this->describe($blockers),
+                $blockers,
+            );
+        }
+
+        $snapshot = $this->present($type, $record);
+
+        $record->delete();
+
+        $this->logger->log(
+            'lookup.deleted',
+            "Deleted {$config['label']}",
+            null,
+            ['type' => $type, 'record' => $snapshot],
+            $request->user(),
+        );
+
+        return $this->ok(
+            $snapshot,
+            "{$config['label']} deleted.",
+        );
+    }
+
+    /**
+     * Take the record out of circulation without removing it.
+     */
+    public function deactivate(Request $request, string $type, int $id): JsonResponse
     {
         $config = $this->config($type);
 
@@ -156,8 +225,8 @@ class LookupController extends Controller
         $record->save();
 
         $this->logger->log(
-            'lookup.retired',
-            "Retired {$config['label']}",
+            'lookup.deactivated',
+            "Deactivated {$config['label']}",
             $record,
             [],
             $request->user(),
@@ -165,9 +234,54 @@ class LookupController extends Controller
 
         return $this->ok(
             $this->present($type, $record),
-            "{$config['label']} retired. Existing records that reference it are unaffected.",
+            "{$config['label']} deactivated. Existing records that reference it are unaffected.",
         );
     }
+
+    /**
+     * Rows elsewhere that point at this record, counted per table.
+     *
+     * @param  array<string, mixed>  $config
+     * @return array<int, array{noun: string, count: int}>
+     */
+    private function dependents(array $config, int $id): array
+    {
+        $found = [];
+
+        foreach ($config['used_by'] ?? [] as $relation) {
+            $count = DB::table($relation['table'])
+                ->where($relation['column'], $id)
+                ->count();
+
+            if ($count > 0) {
+                $found[] = ['noun' => $relation['noun'], 'count' => $count];
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * "148 shifts", or "3 workstations and 12 tracker entries".
+     *
+     * @param  array<int, array{noun: string, count: int}>  $blockers
+     */
+    private function describe(array $blockers): string
+    {
+        $parts = array_map(
+            fn (array $b): string => $b['count'].' '.$b['noun'].($b['count'] === 1 ? '' : 's'),
+            $blockers,
+        );
+
+        if (count($parts) === 1) {
+            return $parts[0];
+        }
+
+        $last = array_pop($parts);
+
+        return implode(', ', $parts).' and '.$last;
+    }
+
 
     // ----------------------------------------------------------------- Helpers
 

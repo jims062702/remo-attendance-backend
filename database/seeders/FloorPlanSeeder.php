@@ -66,7 +66,13 @@ class FloorPlanSeeder extends Seeder
 
     public function run(): void
     {
-        $siteId = Site::query()->active()->orderBy('id')->value('id');
+        // By name, for the same reason OperationsLookupSeeder resolves it by
+        // name: "the first active site" is whichever row the database felt
+        // like returning, and on PostgreSQL that genuinely varies between
+        // runs. Pointing at a different site creates a second set of machines
+        // rather than updating the existing ones.
+        $siteId = Site::query()->where('name', 'BEAMO 3F C')->value('id')
+            ?? Site::query()->orderBy('id')->value('id');
 
         $created = 0;
         $positioned = 0;
@@ -74,10 +80,8 @@ class FloorPlanSeeder extends Seeder
         foreach (self::BLOCKS as $block => $rows) {
             foreach ($rows as $rowIndex => $numbers) {
                 foreach ($numbers as $colIndex => $number) {
-                    // Matches the existing "PC-01" convention rather than the
-                    // "PC 1" written on the plan, so machines already carrying
-                    // attendance history keep the name they were recorded under.
-                    $name = sprintf('PC-%02d', $number);
+                    // One source for the convention -- see Workstation::floorName.
+                    $name = Workstation::floorName($number);
 
                     $workstation = Workstation::withoutGlobalScopes()
                         ->where('site_id', $siteId)

@@ -30,6 +30,25 @@ class Workstation extends Model
         ];
     }
 
+    /**
+     * The floor's naming convention: machine 6 is "PC-06 3F C".
+     *
+     * One function so the seeders, the deduplication migration and any future
+     * caller cannot drift apart. Machines are unique on (site_id, name), so a
+     * seeder that spells a name differently from the rows already in the table
+     * does not update them -- it creates a parallel set, which is exactly how
+     * this floor ended up with two of every PC.
+     *
+     * The suffix names the physical location, matching the site it belongs to,
+     * because "PC-06" alone is ambiguous the moment a second room exists.
+     */
+    public const FLOOR_SUFFIX = '3F C';
+
+    public static function floorName(int $number): string
+    {
+        return sprintf('PC-%02d %s', $number, self::FLOOR_SUFFIX);
+    }
+
     /** True once the machine has been placed on the floor plan. */
     public function isPlaced(): bool
     {

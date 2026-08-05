@@ -130,7 +130,14 @@ Route::middleware(['auth:sanctum', 'active'])->group(function (): void {
                 Route::get('/', [LookupController::class, 'index'])->name('index');
                 Route::post('/', [LookupController::class, 'store'])->name('store');
                 Route::put('{id}', [LookupController::class, 'update'])->whereNumber('id')->name('update');
+                // Removes the row outright, and refuses with a 409 naming the
+                // dependents when anything still points at it.
                 Route::delete('{id}', [LookupController::class, 'destroy'])->whereNumber('id')->name('destroy');
+
+                // The fallback the refusal points at: keeps the row, takes it
+                // out of the pickers, leaves history resolving.
+                Route::post('{id}/deactivate', [LookupController::class, 'deactivate'])
+                    ->whereNumber('id')->name('deactivate');
             });
 
         // Excel export. `type` selects the report; filters come from the query

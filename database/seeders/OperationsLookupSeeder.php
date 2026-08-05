@@ -58,13 +58,29 @@ class OperationsLookupSeeder extends Seeder
             Site::updateOrCreate(['name' => $name], ['is_active' => true]);
         }
 
-        $site = Site::first();
+        /*
+         * Resolved BY NAME, never by "the first one".
+         *
+         * This was `Site::first()`, and that produced duplicate machines in
+         * production. A query with no ORDER BY has no defined order, and
+         * PostgreSQL means it: rows live in a heap and an UPDATE physically
+         * relocates them, so `first()` genuinely returns different rows on
+         * different runs. MySQL hides this -- its clustered index hands back
+         * primary-key order for a simple scan -- which is why development
+         * never saw it.
+         *
+         * Once a second site existed, this seeder began picking whichever site
+         * Postgres happened to return. Machines are unique on (site_id, name),
+         * so pointing at the other site did not collide with the existing rows
+         * -- it created a second full set of them.
+         */
+        $site = Site::where('name', self::SITES[0])->firstOrFail();
 
-        // A starting bank of workstations. Operations adds or retires these
+        // A starting bank of workstations. Operations adds or deletes these
         // from the admin screens; this is only so the flow is usable on day one.
         for ($i = 1; $i <= 30; $i++) {
             Workstation::updateOrCreate(
-                ['site_id' => $site?->id, 'name' => sprintf('PC-%02d', $i)],
+                ['site_id' => $site->id, 'name' => Workstation::floorName($i)],
                 [
                     'is_active' => true,
                     // PC-01 belongs to support and is outside the tasker pool.
