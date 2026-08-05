@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Admin;
 
 use App\Enums\AttendanceStatus;
+use App\Exceptions\AttendanceException;
 use App\Http\Controllers\Concerns\ApiResponses;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\AttendanceIndexRequest;
 use App\Http\Requests\Admin\CorrectAttendanceRequest;
 use App\Http\Resources\AttendanceResource;
 use App\Models\Attendance;
+use App\Models\Task;
+use App\Models\TrackerEntry;
 use App\Services\ActivityLogger;
 use App\Services\AttendanceService;
 use App\Services\ReportService;
@@ -133,6 +136,57 @@ class AdminAttendanceController extends Controller
             AttendanceResource::make($attendance->refresh()->load('user'))->resolve(),
             'Attendance record corrected.',
         );
+    }
+
+    /**
+     * Remove a shift record outright.
+     *
+     * Deleted for real, not soft deleted, and that is the whole design.
+     * `attendances` is unique on (user_id, attendance_date) and a soft-deleted
+     * row still occupies that pair -- so hiding the record would silently stop
+     * the tasker filing that night again, and the refusal they would meet is
+     * "You have already timed in", which is exactly the wrong explanation.
+     * Removing the row frees the night.
+     *
+     * Refused while production is filed against it: see
+     * AttendanceException::hasProduction(). The tasking statuses attached to
+     * the shift are cascaded by the database, since they describe this record
+     * and nothing else.
+     */
+    public function destroy(Request $request, Attendance $attendance): JsonResponse
+    {
+        $this->authorize('delete', $attendance);
+
+        $entries = TrackerEntry::withTrashed()
+            ->where('attendance_id', $attendance->id)->count();
+        $tasks = Task::withTrashed()
+            ->where('attendance_id', $attendance->id)->count();
+
+        if ($entries > 0 || $tasks > 0) {
+            throw AttendanceException::hasProduction($entries, $tasks);
+        }
+
+        $snapshot = [
+            'user' => $attendance->user->email,
+            'attendance_date' => $attendance->attendance_date->toDateString(),
+            'time_in' => $attendance->time_in?->toDateTimeString(),
+            'time_out' => $attendance->time_out?->toDateTimeString(),
+            'status' => $attendance->status->value,
+        ];
+
+        $attendance->forceDelete();
+
+        // Logged against no subject, because the subject no longer exists --
+        // the snapshot is the only remaining record that it ever did.
+        $this->logger->log(
+            'attendance.deleted',
+            "Deleted the shift of {$snapshot['attendance_date']} for {$snapshot['user']}",
+            null,
+            $snapshot,
+            $request->user(),
+        );
+
+        return $this->ok($snapshot, 'Attendance record deleted.');
     }
 
     /**

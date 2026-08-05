@@ -102,6 +102,37 @@ final class AttendanceException extends DomainException
     }
 
     /**
+     * The shift still has production filed against it.
+     *
+     * `tracker_entries.attendance_id` and `tasks.attendance_id` are both
+     * nullOnDelete, so removing the shift would not fail -- it would quietly
+     * detach the night's work and leave it in the Submissions list belonging
+     * to nobody's shift. Refusing puts the order of operations in the admin's
+     * hands: remove the submission, then remove the shift.
+     */
+    public static function hasProduction(int $entries, int $tasks): self
+    {
+        $parts = [];
+
+        if ($entries > 0) {
+            $parts[] = $entries.' tracker '.($entries === 1 ? 'entry' : 'entries');
+        }
+
+        if ($tasks > 0) {
+            $parts[] = $tasks.' extra '.($tasks === 1 ? 'task' : 'tasks');
+        }
+
+        return new self(
+            'This shift cannot be deleted because '.implode(' and ', $parts)
+            .' are filed against it. Delete those from Submissions first, '
+            .'or the work would be left attached to no shift at all.',
+            'attendance.has_production',
+            Response::HTTP_CONFLICT,
+            ['tracker_entries' => $entries, 'tasks' => $tasks],
+        );
+    }
+
+    /**
      * The production commitment attaches to a shift, so a shift must exist.
      */
     public static function noShiftForCommitment(CarbonInterface $businessDate): self

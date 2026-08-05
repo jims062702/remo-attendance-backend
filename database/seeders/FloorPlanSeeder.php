@@ -74,6 +74,23 @@ class FloorPlanSeeder extends Seeder
         $siteId = Site::query()->where('name', 'BEAMO 3F C')->value('id')
             ?? Site::query()->orderBy('id')->value('id');
 
+        /*
+         * Has this plan ever been applied?
+         *
+         * Not "is the floor empty" -- OperationsLookupSeeder creates the first
+         * thirty machines, so the floor is never empty by the time this runs
+         * and the other thirty would never be built.
+         *
+         * A positioned machine is the mark this seeder leaves. Once any exist,
+         * the floor has been laid out at least once, and a machine missing
+         * from it was removed by an admin rather than never created. Decided
+         * once, before anything is written.
+         */
+        $planApplied = Workstation::query()
+            ->withoutGlobalScopes()
+            ->whereNotNull('floor_block')
+            ->exists();
+
         $created = 0;
         $positioned = 0;
 
@@ -89,6 +106,13 @@ class FloorPlanSeeder extends Seeder
                         ->first();
 
                     if ($workstation === null) {
+                        // A machine missing from a floor that has already been
+                        // laid out was DELETED by an admin, and rebuilding it
+                        // every deploy is the seeder overruling them.
+                        if ($planApplied) {
+                            continue;
+                        }
+
                         $workstation = new Workstation;
                         $workstation->name = $name;
                         $workstation->site_id = $siteId;

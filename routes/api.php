@@ -9,6 +9,7 @@ use App\Http\Controllers\Admin\ImportController;
 use App\Http\Controllers\Admin\LookupController;
 use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Admin\TaskerController;
+use App\Http\Controllers\Admin\TrackerEntryController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\DailyFlowController;
 use App\Http\Controllers\Auth\AuthController;
@@ -108,6 +109,11 @@ Route::middleware(['auth:sanctum', 'active'])->group(function (): void {
         Route::get('attendance/{attendance}', [AdminAttendanceController::class, 'show'])->name('attendance.show');
         Route::put('attendance/{attendance}', [AdminAttendanceController::class, 'update'])->name('attendance.update');
 
+        // Removes the row for real. Refuses with a 409 while a submission or
+        // an extra task is still filed against the shift.
+        Route::delete('attendance/{attendance}', [AdminAttendanceController::class, 'destroy'])
+            ->name('attendance.destroy');
+
         // Reporting.
         Route::prefix('reports')->name('reports.')->middleware('throttle:reports')->group(function (): void {
             Route::get('attendance', [ReportController::class, 'attendance'])->name('attendance');
@@ -117,6 +123,10 @@ Route::middleware(['auth:sanctum', 'active'])->group(function (): void {
 
         // The nightly tracker submissions the operation reviews each morning.
         Route::get('tracker-entries', [ReportController::class, 'trackerEntries'])->name('tracker-entries');
+
+        // Listing is reporting; removing is not. Hence the separate controller.
+        Route::delete('tracker-entries/{entry}', [TrackerEntryController::class, 'destroy'])
+            ->whereNumber('entry')->name('tracker-entries.destroy');
 
         Route::get('activity-logs', [ReportController::class, 'activityLogs'])->name('activity-logs');
 
