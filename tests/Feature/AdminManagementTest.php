@@ -82,6 +82,54 @@ it('deactivates a tasker without destroying their history', function (): void {
         ->and(User::withTrashed()->find($tasker->id)->status)->toBe(UserStatus::Inactive);
 });
 
+it('lists deactivated taskers when the roster asks for them', function (): void {
+    // The filter the "Show deactivated" checkbox drives. It was unreachable
+    // from the UI: the client serialised the boolean as the string "true", and
+    // Laravel's `boolean` rule compares strictly against
+    // [true, false, 0, 1, "0", "1"] -- so every tick of the box came back as a
+    // validation error about the checkbox itself.
+    $active = tasker(['name' => 'Still Here', 'email' => 'here@test.local']);
+    $gone = tasker(['name' => 'Long Gone', 'email' => 'gone@test.local']);
+
+    $this->actingAs($this->admin)->deleteJson("/api/admin/taskers/{$gone->id}")->assertOk();
+
+    // Without the flag: only the active account.
+    $names = collect(
+        $this->actingAs($this->admin)->getJson('/api/admin/taskers')->assertOk()->json('data'),
+    )->pluck('name');
+
+    expect($names)->toContain($active->name)->not->toContain($gone->name);
+
+    // With it, in the shape the client actually sends.
+    $names = collect(
+        $this->actingAs($this->admin)->getJson('/api/admin/taskers?include_deleted=1')
+            ->assertOk()->json('data'),
+    )->pluck('name');
+
+    expect($names)->toContain($active->name)->toContain($gone->name);
+});
+
+it('refuses to recreate a deactivated account and says to restore it', function (): void {
+    // users.email is unique at the database level and a soft-deleted row still
+    // occupies the address, so this used to pass validation and then die on the
+    // index -- a 500 with nothing an administrator could act on.
+    $tasker = tasker(['name' => 'Long Gone', 'email' => 'gone@test.local']);
+
+    $this->actingAs($this->admin)->deleteJson("/api/admin/taskers/{$tasker->id}")->assertOk();
+
+    $response = $this->actingAs($this->admin)->postJson('/api/admin/taskers', [
+        'name' => 'Long Gone',
+        'email' => 'gone@test.local',
+    ])->assertStatus(422)->assertJsonValidationErrors('email');
+
+    expect($response->json('errors.email.0'))
+        ->toContain('deactivated account')
+        ->toContain('Long Gone');
+
+    // Nothing was created, and the original is still there to restore.
+    expect(User::withTrashed()->where('email', 'gone@test.local')->count())->toBe(1);
+});
+
 it('reactivates a deactivated tasker', function (): void {
     $tasker = tasker();
     $this->actingAs($this->admin)->deleteJson("/api/admin/taskers/{$tasker->id}");

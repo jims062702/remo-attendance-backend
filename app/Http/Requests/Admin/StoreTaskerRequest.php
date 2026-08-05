@@ -9,6 +9,7 @@ use App\Enums\UserStatus;
 use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 /**
  * Provision an account.
@@ -35,8 +36,10 @@ class StoreTaskerRequest extends FormRequest
             'name' => ['required', 'string', 'max:255'],
 
             // The address that must match their Google account exactly.
-            // Uniqueness ignores the soft-delete flag because a deactivated
-            // user still occupies the address in the unique index.
+            //
+            // withoutTrashed() so a deactivated account does not report the
+            // generic "already been taken" -- that case is caught in
+            // withValidator() below and answered with what to do about it.
             'email' => [
                 'required', 'string', 'email:rfc', 'max:255',
                 Rule::unique('users', 'email')->withoutTrashed(),
@@ -52,6 +55,43 @@ class StoreTaskerRequest extends FormRequest
         if ($this->has('email')) {
             $this->merge(['email' => strtolower(trim((string) $this->input('email')))]);
         }
+    }
+
+    /**
+     * Catch the address that belongs to a deactivated account.
+     *
+     * Deactivating soft deletes, and `users.email` is unique at the database
+     * level -- a trashed row still occupies the address. So creating the person
+     * again passed validation and then hit the unique index, which surfaced as
+     * a 500 with nothing in it an administrator could act on.
+     *
+     * The account is not recreated here. Restoring keeps the attendance and
+     * task history attached to the same row; a fresh account would leave all of
+     * it stranded against an invisible user, which is exactly what deactivating
+     * rather than deleting was meant to avoid.
+     */
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator): void {
+            $email = (string) $this->input('email');
+
+            if ($email === '' || $validator->errors()->has('email')) {
+                return;
+            }
+
+            $deactivated = User::onlyTrashed()->where('email', $email)->first();
+
+            if ($deactivated === null) {
+                return;
+            }
+
+            $validator->errors()->add('email', sprintf(
+                'This address belongs to a deactivated account (%s). Tick "Show deactivated" '
+                .'on the roster and restore it instead — that keeps their attendance and task '
+                .'history attached to the same person.',
+                $deactivated->name,
+            ));
+        });
     }
 
     /**
