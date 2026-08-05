@@ -74,9 +74,10 @@ class Task extends Model
     /**
      * @return BelongsTo<User, $this>
      */
+    /** Deactivated accounts included: the task outlives the account. */
     public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class)->withTrashed();
     }
 
     /**

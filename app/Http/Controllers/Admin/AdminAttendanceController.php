@@ -122,7 +122,7 @@ class AdminAttendanceController extends Controller
 
         $this->logger->log(
             'attendance.corrected',
-            "Corrected attendance for {$attendance->user->email} on {$attendance->attendance_date->toDateString()}",
+            "Corrected attendance for {$attendance->user?->email} on {$attendance->attendance_date->toDateString()}",
             $attendance,
             [
                 'reason' => $data['reason'],
@@ -167,7 +167,10 @@ class AdminAttendanceController extends Controller
         }
 
         $snapshot = [
-            'user' => $attendance->user->email,
+            // Null-safe as well as withTrashed on the relation: belt and
+            // braces, because this is the last chance to record who the shift
+            // belonged to before the row is gone.
+            'user' => $attendance->user?->email ?? 'unknown',
             'attendance_date' => $attendance->attendance_date->toDateString(),
             'time_in' => $attendance->time_in?->toDateTimeString(),
             'time_out' => $attendance->time_out?->toDateTimeString(),

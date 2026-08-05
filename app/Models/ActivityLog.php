@@ -51,9 +51,13 @@ class ActivityLog extends Model
     /**
      * @return BelongsTo<User, $this>
      */
+    /**
+     * Deactivated accounts included. An audit trail that forgets who did
+     * something the moment their account is closed is not an audit trail.
+     */
     public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class)->withTrashed();
     }
 
     /**

@@ -164,6 +164,42 @@ it('lets the shift be deleted once its submission is gone', function (): void {
     expect(Attendance::withTrashed()->count())->toBe(0);
 });
 
+it('deletes the shift of a deactivated tasker', function (): void {
+    /*
+     * The reported 500, and the order of operations the roster forces.
+     *
+     * An account cannot be deleted while it owns a shift, so the shift goes
+     * first -- and by then the account is already deactivated. That meant this
+     * endpoint was only ever reached with a soft-deleted owner, which is
+     * exactly the case that used to blow up: belongsTo applies the soft-delete
+     * scope, `$attendance->user` came back null, and reading ->email off it
+     * was an unhandled error.
+     */
+    $shift = bareShift($this->tasker);
+
+    $this->actingAs($this->admin)->deleteJson("/api/admin/taskers/{$this->tasker->id}")->assertOk();
+
+    $this->actingAs($this->admin)
+        ->deleteJson("/api/admin/attendance/{$shift->id}")
+        ->assertOk();
+
+    expect(Attendance::withTrashed()->find($shift->id))->toBeNull();
+});
+
+it('still names a deactivated tasker on their historical shifts', function (): void {
+    // The same fault, seen from the roster rather than from an endpoint: every
+    // shift a deactivated person ever worked showed no name at all, which is
+    // the opposite of what deactivating instead of deleting is for.
+    bareShift($this->tasker);
+
+    $this->actingAs($this->admin)->deleteJson("/api/admin/taskers/{$this->tasker->id}")->assertOk();
+
+    $this->actingAs($this->admin)
+        ->getJson('/api/admin/attendance?from=2026-07-26&to=2026-07-26')
+        ->assertOk()
+        ->assertJsonPath('data.0.user.name', $this->tasker->name);
+});
+
 // ----------------------------------------------------------------- Accounts
 
 it('deletes a deactivated account that never worked, freeing the address', function (): void {

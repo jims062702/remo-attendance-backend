@@ -51,9 +51,10 @@ class TrackerEntry extends Model
     // ---------------------------------------------------------------- Relations
 
     /** @return BelongsTo<User, $this> */
+    /** Deactivated accounts included: the submission outlives the account. */
     public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class)->withTrashed();
     }
 
     /** @return BelongsTo<Attendance, $this> */

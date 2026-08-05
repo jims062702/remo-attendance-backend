@@ -76,9 +76,20 @@ class Attendance extends Model
     /**
      * @return BelongsTo<User, $this>
      */
+    /**
+     * The tasker this shift belongs to, deactivated or not.
+     *
+     * withTrashed() is what makes business rule 10 true. Deactivating soft
+     * deletes the account so that "historical attendance and task records keep
+     * a valid owner" -- but a plain belongsTo applies the soft-delete scope and
+     * resolves to NULL the moment the account goes, which is precisely the
+     * opposite. Every shift a deactivated tasker ever worked lost its name on
+     * screen, and anything reading `$attendance->user->email` raised
+     * "Attempt to read property on null" instead.
+     */
     public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class)->withTrashed();
     }
 
     /**
