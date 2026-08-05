@@ -362,7 +362,19 @@ class AttendanceService
         $graceEnd = $this->scheduledStart($businessDate)
             ->addMinutes((int) config('attendance.grace_minutes'));
 
-        return $timeIn->greaterThan($graceEnd)
+        /*
+         * Compared at whole-minute precision, deliberately.
+         *
+         * Nobody reads seconds off a clock. With a 30-minute grace, a raw
+         * comparison makes 22:30:45 late -- while every screen, badge and
+         * email the tasker sees says "10:30 PM", which is the time the rule
+         * calls on time. Being marked late by a number nobody was shown is
+         * indistinguishable from a bug.
+         *
+         * Truncating means the rule reads exactly as it is stated: 10:30 PM is
+         * on time, 10:31 PM is late.
+         */
+        return $timeIn->copy()->startOfMinute()->greaterThan($graceEnd)
             ? AttendanceStatus::Late
             : AttendanceStatus::Present;
     }
@@ -381,7 +393,9 @@ class AttendanceService
         // anything up to the end of the grace window.
         $graceEnd = $scheduled->addMinutes((int) config('attendance.grace_minutes'));
 
-        if ($timeIn->lessThanOrEqualTo($graceEnd)) {
+        // Truncated to the minute for the same reason resolveClockInStatus is:
+        // the two must agree, or a record reads "Present" beside "1m late".
+        if ($timeIn->copy()->startOfMinute()->lessThanOrEqualTo($graceEnd)) {
             return 0;
         }
 

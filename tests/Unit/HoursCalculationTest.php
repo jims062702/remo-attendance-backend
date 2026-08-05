@@ -86,11 +86,51 @@ it('marks a clock-in past the grace window as late', function (): void {
     $businessDate = CarbonImmutable::parse('2026-07-26');
 
     $status = $this->service->resolveClockInStatus(
-        CarbonImmutable::parse('2026-07-26 22:16'),
+        CarbonImmutable::parse('2026-07-26 22:31'),
         $businessDate,
     );
 
     expect($status)->toBe(AttendanceStatus::Late);
+});
+
+it('puts the boundary between 10:30 PM and 10:31 PM', function (): void {
+    // The rule as an operator states it. Pinned to the minute rather than to
+    // the config value so that changing grace_minutes without meaning to
+    // breaks something.
+    $businessDate = CarbonImmutable::parse('2026-07-26');
+
+    expect(config('attendance.grace_minutes'))->toBe(30);
+
+    $status = fn (string $at): AttendanceStatus => $this->service->resolveClockInStatus(
+        CarbonImmutable::parse($at),
+        $businessDate,
+    );
+
+    expect($status('2026-07-26 22:30'))->toBe(AttendanceStatus::Present)
+        ->and($status('2026-07-26 22:31'))->toBe(AttendanceStatus::Late);
+});
+
+it('does not make someone late by seconds nobody can see', function (): void {
+    // 22:30:45 reads as "10:30 PM" on every screen, badge and email. Marking
+    // it late would be a decision made on a number the tasker was never shown.
+    $businessDate = CarbonImmutable::parse('2026-07-26');
+
+    expect($this->service->resolveClockInStatus(
+        CarbonImmutable::parse('2026-07-26 22:30:45'),
+        $businessDate,
+    ))->toBe(AttendanceStatus::Present);
+
+    // And the two figures agree: Present must never sit beside "1m late".
+    expect($this->service->minutesLate(
+        CarbonImmutable::parse('2026-07-26 22:30:45'),
+        $businessDate,
+    ))->toBe(0);
+
+    // The first genuinely late second is the start of the next minute.
+    expect($this->service->resolveClockInStatus(
+        CarbonImmutable::parse('2026-07-26 22:31:00'),
+        $businessDate,
+    ))->toBe(AttendanceStatus::Late);
 });
 
 it('measures lateness against the shift start even after midnight', function (): void {

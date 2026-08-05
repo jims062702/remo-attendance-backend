@@ -80,9 +80,16 @@ return [
     | Lateness is always measured against the shift start of the record's
     | business date, never against "today".
     |
+    | With a 22:00 start and 30 minutes, the boundary falls between 22:30 and
+    | 22:31: arriving at 10:30 PM is on time, 10:31 PM is late. The comparison
+    | is made at whole-minute precision (see resolveClockInStatus), so a
+    | clock-in at 22:30:45 is on time too -- it reads as 10:30 PM everywhere
+    | the tasker can see, and marking it late by hidden seconds would be
+    | indistinguishable from a fault.
+    |
     */
 
-    'grace_minutes' => (int) env('ATTENDANCE_GRACE_MINUTES', 15),
+    'grace_minutes' => (int) env('ATTENDANCE_GRACE_MINUTES', 30),
 
     /*
     |--------------------------------------------------------------------------
