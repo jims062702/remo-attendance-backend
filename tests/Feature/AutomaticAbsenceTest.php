@@ -73,6 +73,41 @@ it('skips taskers who are not active', function (): void {
     expect(Attendance::where('user_id', $suspended->id)->exists())->toBeFalse();
 });
 
+it('never marks a deactivated tasker absent', function (): void {
+    // Deactivating takes someone off the roster. Filing an absence against
+    // them every night afterwards would grow a record of failing to attend a
+    // shift nobody expected them at -- and would feed the discontinuation-risk
+    // counter for a person who has already left.
+    $working = tasker(['email' => 'here@test.local']);
+    $gone = tasker(['email' => 'gone@test.local']);
+
+    $this->actingAs(admin())->deleteJson("/api/admin/taskers/{$gone->id}")->assertOk();
+
+    $this->artisan('attendance:mark-absent')->assertSuccessful();
+
+    expect(Attendance::where('user_id', $gone->id)->exists())->toBeFalse()
+        // And the roster that remains is still marked, so this is a filter and
+        // not the command quietly doing nothing.
+        ->and(Attendance::where('user_id', $working->id)->exists())->toBeTrue();
+});
+
+it('excludes a deactivated tasker even if their status still reads active', function (): void {
+    // Two independent guards: the soft-delete scope and the status filter.
+    // This pins the first one on its own, so a future change to how
+    // deactivation sets status cannot quietly put ex-taskers back on the
+    // absence list.
+    $gone = tasker(['email' => 'gone@test.local']);
+
+    $this->actingAs(admin())->deleteJson("/api/admin/taskers/{$gone->id}")->assertOk();
+
+    App\Models\User::withTrashed()->whereKey($gone->id)
+        ->update(['status' => UserStatus::Active]);
+
+    $this->artisan('attendance:mark-absent')->assertSuccessful();
+
+    expect(Attendance::where('user_id', $gone->id)->exists())->toBeFalse();
+});
+
 it('is safe to run twice', function (): void {
     $tasker = tasker();
 
