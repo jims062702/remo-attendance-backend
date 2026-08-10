@@ -58,6 +58,58 @@ class AttendanceService
     }
 
     /**
+     * Whether the floor is rostered to run on a given business date.
+     *
+     * Measured on the date the shift STARTS. A night beginning 10 PM Tuesday
+     * and ending 6 AM Wednesday is a Tuesday night, and it is Tuesday that has
+     * to be on the roster.
+     *
+     * Answering false does not forbid anything -- a tasker who works a rest
+     * night is recorded normally. It only means nobody is expected, so nobody
+     * is marked absent and the night is not counted against anyone's rate.
+     */
+    public function isWorkingDate(CarbonInterface $businessDate): bool
+    {
+        $days = (array) config('attendance.working_days');
+
+        // An empty roster would silently stop every absence from being filed,
+        // which is a much quieter failure than the opposite. Treated as "every
+        // night runs", matching the behaviour before a roster existed.
+        if ($days === []) {
+            return true;
+        }
+
+        return in_array(CarbonImmutable::instance($businessDate)->dayOfWeekIso, $days, true);
+    }
+
+    /**
+     * How many rostered nights fall in a date range, inclusive of both ends.
+     *
+     * The denominator for an attendance rate. Counting calendar days instead
+     * scored a tasker who worked every rostered night at roughly 71%, because
+     * the two nights nobody was expected counted against them.
+     */
+    public function workingDatesBetween(CarbonInterface $from, CarbonInterface $to): int
+    {
+        $start = CarbonImmutable::instance($from)->startOfDay();
+        $end = CarbonImmutable::instance($to)->startOfDay();
+
+        if ($end->lessThan($start)) {
+            return 0;
+        }
+
+        $count = 0;
+
+        for ($date = $start; $date->lessThanOrEqualTo($end); $date = $date->addDay()) {
+            if ($this->isWorkingDate($date)) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
      * The moment a given business date's shift was scheduled to start.
      */
     public function scheduledStart(CarbonInterface $businessDate): CarbonImmutable
@@ -132,6 +184,11 @@ class AttendanceService
 
         $now = $at ? CarbonImmutable::instance($at) : CarbonImmutable::now();
         $businessDate = $this->resolveBusinessDate($now);
+
+        // No shift is scheduled, so there is no clock to start.
+        if (! $this->isWorkingDate($businessDate)) {
+            throw AttendanceException::notRostered($businessDate);
+        }
 
         $attendance = DB::transaction(function () use ($user, $now, $businessDate): Attendance {
             // A record may already exist without a clock-in -- an admin marking

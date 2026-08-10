@@ -63,6 +63,11 @@ class DailyFlowController extends Controller
             // false for the same reason.
             'settled' => $state['settled'],
 
+            // No shift is rostered tonight. Separate from `settled` because
+            // the screen has to say something different: "you were marked
+            // absent" and "nobody works tonight" are not the same news.
+            'off_duty' => $state['off_duty'],
+
             'attendance' => $state['attendance']
                 ? AttendanceResource::make($state['attendance'])->resolve()
                 : null,
@@ -77,7 +82,10 @@ class DailyFlowController extends Controller
                 ? TrackerEntryResource::make($state['last_entry']->load('items.project'))->resolve()
                 : null,
 
-            'can_time_out' => ($state['attendance']?->isOpen() ?? false),
+            // An unrostered night has no clock to stop. A record can still
+            // exist -- an admin may have filed one by hand -- so this is not
+            // implied by the absence of attendance.
+            'can_time_out' => ! $state['off_duty'] && ($state['attendance']?->isOpen() ?? false),
 
             // Tonight / this week / this month, so a tasker can see their own
             // output without going to a separate report.

@@ -20,6 +20,42 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Working Days
+    |--------------------------------------------------------------------------
+    |
+    | Which nights the floor runs, as ISO-8601 weekday numbers:
+    |
+    |   1 Mon   2 Tue   3 Wed   4 Thu   5 Fri   6 Sat   7 Sun
+    |
+    | The number is the day the SHIFT STARTS -- the business date -- not the
+    | day it ends. A shift beginning 10 PM Tuesday and finishing 6 AM Wednesday
+    | is a Tuesday night, and "2" is what puts it on the roster.
+    |
+    | The default 2,3,4,5,6 is Tuesday through Saturday: five nights, with
+    | Sunday and Monday off.
+    |
+    | This exists because the system previously had no roster at all. Every
+    | calendar date was treated as a scheduled night, which produced two wrong
+    | answers: `attendance:mark-absent` filed an absence against every tasker on
+    | rest nights, and the attendance rate divided days worked by every day in
+    | the range -- scoring a full five-night attendance as roughly 71%.
+    |
+    | A rest night is CLOSED, not merely unexpected. The daily flow reports
+    | `off_duty`, every step reads false, and both doors into the clock --
+    | timeIn() and activate() -- refuse with `attendance.not_rostered`. Working
+    | an unrostered night is an operational decision, and an admin can still
+    | file the record by hand; it is not something a tasker does by pressing a
+    | button on a night the floor is dark.
+    |
+    */
+
+    'working_days' => array_values(array_filter(array_map(
+        'intval',
+        explode(',', (string) env('ATTENDANCE_WORKING_DAYS', '2,3,4,5,6')),
+    ), fn (int $day): bool => $day >= 1 && $day <= 7)),
+
+    /*
+    |--------------------------------------------------------------------------
     | Business Day Cutoff
     |--------------------------------------------------------------------------
     |

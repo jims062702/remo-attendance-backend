@@ -47,6 +47,20 @@ class MarkAbsentTaskers extends Command
         $businessDate = $attendance->resolveBusinessDate();
         $date = $businessDate->toDateString();
 
+        // Nobody is expected on a rest night, so nobody is absent from it.
+        // Without this the floor was marked absent every Sunday and Monday --
+        // records of failing to attend a shift that was never scheduled, which
+        // also fed the rolling absence-warning counter.
+        if (! $attendance->isWorkingDate($businessDate)) {
+            $this->info(sprintf(
+                '%s is a %s, which is not a rostered night. Nobody to mark.',
+                $date,
+                $businessDate->format('l'),
+            ));
+
+            return self::SUCCESS;
+        }
+
         // Admins are excluded. They are not on the roster, are not counted in
         // the roll call's denominator, and marking them absent would put
         // supervisors into the discontinuation-risk report.

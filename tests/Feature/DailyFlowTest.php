@@ -55,7 +55,7 @@ function trackerPayload(int $projectId, array $overrides = []): array
         'items' => [[
             'project_id' => $projectId,
             'tasker_level' => 'l8',
-            'total_tasks' => 42,
+            'total_tasks' => 3,
             'task_ids' => 'TASK1, TASK2 (SBQ), TASK3',
             'task_complexity' => 'mid_scene_frames',
             'screenshot_links' => 'https://drive.example.com/a',
@@ -177,7 +177,7 @@ it('submits a tracker entry linked to the shift', function (): void {
         // Rendered hours come from the clock, so they are unknown while the
         // shift is still running.
         ->assertJsonPath('data.declared_hours', null)
-        ->assertJsonPath('data.total_tasks', 42);
+        ->assertJsonPath('data.total_tasks', 3);
 
     expect(TrackerEntry::firstOrFail()->attendance_id)->toBe(Attendance::firstOrFail()->id);
 });
@@ -191,6 +191,7 @@ it('counts task IDs and SBQ markers from the submitted list', function (): void 
             'tasker_level' => 'l8',
             'total_tasks' => 4,
             'task_ids' => 'T1 (SBQ), T2, T3 (SBQ), T4',
+            'screenshot_links' => 'https://drive.example.com/a',
         ]],
     ]))->assertCreated();
 
@@ -216,7 +217,7 @@ it('keeps task IDs, complexity and screenshots separate per project', function (
             [
                 'project_id' => $this->project->id,
                 'tasker_level' => 'l8',
-                'total_tasks' => 30,
+                'total_tasks' => 3,
                 'task_ids' => 'A1, A2, A3',
                 'task_complexity' => 'short_frame',
                 'screenshot_links' => 'https://drive.example.com/aloha',
@@ -226,7 +227,7 @@ it('keeps task IDs, complexity and screenshots separate per project', function (
                 // A different level on the same night is exactly what a single
                 // entry-level field could not express.
                 'tasker_level' => 'attempter',
-                'total_tasks' => 12,
+                'total_tasks' => 2,
                 'task_ids' => 'E1, E2',
                 'task_complexity' => 'super_dense_8k',
                 'screenshot_links' => 'https://drive.example.com/ego',
@@ -239,7 +240,7 @@ it('keeps task IDs, complexity and screenshots separate per project', function (
     $ego = $entry->items->firstWhere('project_id', $this->project2->id);
 
     expect($entry->items)->toHaveCount(2)
-        ->and($entry->totalTasks())->toBe(42)
+        ->and($entry->totalTasks())->toBe(5)
         ->and($aloha->tasker_level->value)->toBe('l8')
         ->and($ego->tasker_level->value)->toBe('attempter')
         ->and($aloha->task_ids)->toBe('A1, A2, A3')
@@ -259,8 +260,10 @@ it('rejects the same project listed twice', function (): void {
 
     $this->actingAs($this->tasker)->postJson('/api/daily/tracker', trackerPayload($this->project->id, [
         'items' => [
-            ['project_id' => $this->project->id, 'tasker_level' => 'l8', 'total_tasks' => 10],
-            ['project_id' => $this->project->id, 'tasker_level' => 'l8', 'total_tasks' => 20],
+            ['project_id' => $this->project->id, 'tasker_level' => 'l8', 'total_tasks' => 1,
+                'task_ids' => 'A1', 'screenshot_links' => 'https://drive.example.com/a'],
+            ['project_id' => $this->project->id, 'tasker_level' => 'l8', 'total_tasks' => 1,
+                'task_ids' => 'B1', 'screenshot_links' => 'https://drive.example.com/b'],
         ],
     ]))->assertStatus(422)->assertJsonValidationErrors('items.0.project_id');
 });
@@ -274,27 +277,95 @@ it('requires at least one project block', function (): void {
     ])->assertStatus(422)->assertJsonValidationErrors('items');
 });
 
-it('normalises "N/A" free-text fields to null', function (): void {
+it('normalises blank remarks to null', function (): void {
+    // Remarks are genuinely optional, so "N/A" and whitespace are stored as
+    // nothing rather than as if they were data. Task IDs and screenshots are
+    // no longer in that category -- see the test below.
+    $this->actingAs($this->tasker)->postJson('/api/daily/activate', activationPayload($this->pc->id));
+
+    $this->actingAs($this->tasker)->postJson('/api/daily/tracker', trackerPayload($this->project->id, [
+        'remarks' => '  ',
+    ]))->assertCreated();
+
+    expect(TrackerEntry::firstOrFail()->remarks)->toBeNull();
+});
+
+it('rejects "N/A" where a task ID or screenshot is required', function (): void {
+    // "N/A" normalises to null before validation, so requiring the field is
+    // what makes the convention stop working here -- which is the point. A
+    // night's work has to be traceable to the IDs it produced.
     $this->actingAs($this->tasker)->postJson('/api/daily/activate', activationPayload($this->pc->id));
 
     $this->actingAs($this->tasker)->postJson('/api/daily/tracker', trackerPayload($this->project->id, [
         'items' => [[
             'project_id' => $this->project->id,
             'tasker_level' => 'l0',
-            'total_tasks' => 0,
+            'total_tasks' => 1,
             'task_ids' => 'N/A',
             'screenshot_links' => 'n/a',
         ]],
-        'remarks' => '  ',
+    ]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['items.0.task_ids', 'items.0.screenshot_links']);
+});
+
+it('requires one task ID for every task declared', function (): void {
+    $this->actingAs($this->tasker)->postJson('/api/daily/activate', activationPayload($this->pc->id));
+
+    // Three declared, two listed.
+    $this->actingAs($this->tasker)->postJson('/api/daily/tracker', trackerPayload($this->project->id, [
+        'items' => [[
+            'project_id' => $this->project->id,
+            'tasker_level' => 'l8',
+            'total_tasks' => 3,
+            'task_ids' => 'A1, A2',
+            'screenshot_links' => 'https://drive.example.com/a',
+        ]],
+    ]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('items.0.task_ids');
+
+    // And the other way round: two declared, three listed.
+    $this->actingAs($this->tasker)->postJson('/api/daily/tracker', trackerPayload($this->project->id, [
+        'items' => [[
+            'project_id' => $this->project->id,
+            'tasker_level' => 'l8',
+            'total_tasks' => 2,
+            'task_ids' => 'A1, A2, A3',
+            'screenshot_links' => 'https://drive.example.com/a',
+        ]],
+    ]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('items.0.task_ids');
+
+    // Matching is accepted, SBQ markers and spacing included.
+    $this->actingAs($this->tasker)->postJson('/api/daily/tracker', trackerPayload($this->project->id, [
+        'items' => [[
+            'project_id' => $this->project->id,
+            'tasker_level' => 'l8',
+            'total_tasks' => 3,
+            'task_ids' => 'A1 ,A2 (SBQ),  A3',
+            'screenshot_links' => 'https://drive.example.com/a',
+        ]],
     ]))->assertCreated();
 
-    $entry = TrackerEntry::with('items')->firstOrFail();
-    $item = $entry->items->first();
+    expect(TrackerEntry::with('items')->firstOrFail()->items->first()->task_id_count)->toBe(3);
+});
 
-    expect($item->task_ids)->toBeNull()
-        ->and($item->screenshot_links)->toBeNull()
-        ->and($entry->remarks)->toBeNull()
-        ->and($entry->task_id_count)->toBe(0);
+it('rejects a project block declaring no tasks at all', function (): void {
+    $this->actingAs($this->tasker)->postJson('/api/daily/activate', activationPayload($this->pc->id));
+
+    $this->actingAs($this->tasker)->postJson('/api/daily/tracker', trackerPayload($this->project->id, [
+        'items' => [[
+            'project_id' => $this->project->id,
+            'tasker_level' => 'l8',
+            'total_tasks' => 0,
+            'task_ids' => 'A1',
+            'screenshot_links' => 'https://drive.example.com/a',
+        ]],
+    ]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('items.0.total_tasks');
 });
 
 it('revises the same day rather than creating a second entry', function (): void {
@@ -306,12 +377,13 @@ it('revises the same day rather than creating a second entry', function (): void
 
     $this->actingAs($this->tasker)
         ->postJson('/api/daily/tracker', trackerPayload($this->project->id, [
-            'items' => [['project_id' => $this->project->id, 'tasker_level' => 'l8', 'total_tasks' => 99]],
+            'items' => [['project_id' => $this->project->id, 'tasker_level' => 'l8', 'total_tasks' => 2,
+                'task_ids' => 'R1, R2', 'screenshot_links' => 'https://drive.example.com/r']],
         ]))
         ->assertCreated();
 
     expect(TrackerEntry::count())->toBe(1)
-        ->and(TrackerEntry::with('items')->firstOrFail()->totalTasks())->toBe(99);
+        ->and(TrackerEntry::with('items')->firstOrFail()->totalTasks())->toBe(2);
 });
 
 it('fills the tracker hours from the clock when the tasker times out', function (): void {
@@ -342,19 +414,20 @@ it('reports production totals for tonight, this week and this month', function (
         'items' => [[
             'project_id' => $this->project->id,
             'tasker_level' => 'l8',
-            'total_tasks' => 25,
+            'total_tasks' => 2,
             'task_ids' => 'A, B (SBQ)',
+            'screenshot_links' => 'https://drive.example.com/a',
         ]],
     ]))->assertCreated();
 
     $response = $this->actingAs($this->tasker)->getJson('/api/daily/state')->assertOk();
 
-    expect($response->json('data.totals.today.tasks'))->toBe(25)
+    expect($response->json('data.totals.today.tasks'))->toBe(2)
         ->and($response->json('data.totals.today.task_ids'))->toBe(2)
         ->and($response->json('data.totals.today.sbq'))->toBe(1)
         // Tonight is inside both windows.
-        ->and($response->json('data.totals.week.tasks'))->toBe(25)
-        ->and($response->json('data.totals.month.tasks'))->toBe(25);
+        ->and($response->json('data.totals.week.tasks'))->toBe(2)
+        ->and($response->json('data.totals.month.tasks'))->toBe(2);
 });
 
 // -------------------------------------------------------------------- State

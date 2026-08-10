@@ -31,7 +31,7 @@ beforeEach(function (): void {
     ]);
     $this->project = Project::create(['code' => 'sky_feather', 'is_active' => true]);
 
-    Date::setTestNow(CarbonImmutable::parse('2026-07-26 22:05'));
+    Date::setTestNow(CarbonImmutable::parse('2026-07-28 22:05'));
 });
 
 afterEach(function (): void {
@@ -89,7 +89,7 @@ it('does not send a second confirmation when the tasker changes desk', function 
 });
 
 it('tells a late tasker that they were late', function (): void {
-    Date::setTestNow(CarbonImmutable::parse('2026-07-26 23:30'));
+    Date::setTestNow(CarbonImmutable::parse('2026-07-28 23:30'));
 
     $tasker = tasker();
 
@@ -104,15 +104,15 @@ it('tells a late tasker that they were late', function (): void {
 // -------------------------------------------------------------------- Absence
 
 it('emails only the taskers it marked absent', function (): void {
-    Date::setTestNow(CarbonImmutable::parse('2026-07-27 00:01'));
+    Date::setTestNow(CarbonImmutable::parse('2026-07-29 00:01'));
 
     $absent = tasker();
     $worked = tasker();
 
     Attendance::create([
         'user_id' => $worked->id,
-        'attendance_date' => '2026-07-26',
-        'time_in' => CarbonImmutable::parse('2026-07-26 22:05'),
+        'attendance_date' => '2026-07-28',
+        'time_in' => CarbonImmutable::parse('2026-07-28 22:05'),
         'status' => AttendanceStatus::Present,
     ]);
 
@@ -124,7 +124,7 @@ it('emails only the taskers it marked absent', function (): void {
 });
 
 it('sends nothing on an absence dry run', function (): void {
-    Date::setTestNow(CarbonImmutable::parse('2026-07-27 00:01'));
+    Date::setTestNow(CarbonImmutable::parse('2026-07-29 00:01'));
 
     tasker();
 
@@ -141,21 +141,21 @@ it('emails the tasker whose clock it had to close', function (): void {
 
     Attendance::create([
         'user_id' => $forgot->id,
-        'attendance_date' => '2026-07-26',
-        'time_in' => CarbonImmutable::parse('2026-07-26 22:05'),
+        'attendance_date' => '2026-07-28',
+        'time_in' => CarbonImmutable::parse('2026-07-28 22:05'),
         'status' => AttendanceStatus::Present,
     ]);
 
     Attendance::create([
         'user_id' => $closed->id,
-        'attendance_date' => '2026-07-26',
-        'time_in' => CarbonImmutable::parse('2026-07-26 22:05'),
-        'time_out' => CarbonImmutable::parse('2026-07-27 05:00'),
+        'attendance_date' => '2026-07-28',
+        'time_in' => CarbonImmutable::parse('2026-07-28 22:05'),
+        'time_out' => CarbonImmutable::parse('2026-07-29 05:00'),
         'total_hours' => 6.92,
         'status' => AttendanceStatus::Present,
     ]);
 
-    Date::setTestNow(CarbonImmutable::parse('2026-07-27 06:00'));
+    Date::setTestNow(CarbonImmutable::parse('2026-07-29 06:00'));
 
     $this->artisan('attendance:auto-time-out')->assertSuccessful();
 
@@ -170,19 +170,19 @@ it('renders the ignore-me line only when a tracker entry already exists', functi
     foreach ([$withEntry, $withoutEntry] as $user) {
         Attendance::create([
             'user_id' => $user->id,
-            'attendance_date' => '2026-07-26',
-            'time_in' => CarbonImmutable::parse('2026-07-26 22:05'),
+            'attendance_date' => '2026-07-28',
+            'time_in' => CarbonImmutable::parse('2026-07-28 22:05'),
             'status' => AttendanceStatus::Present,
         ]);
     }
 
     TrackerEntry::create([
         'user_id' => $withEntry->id,
-        'entry_date' => '2026-07-26',
+        'entry_date' => '2026-07-28',
         'tenurity' => 'expert',
     ]);
 
-    Date::setTestNow(CarbonImmutable::parse('2026-07-27 06:00'));
+    Date::setTestNow(CarbonImmutable::parse('2026-07-29 06:00'));
     $this->artisan('attendance:auto-time-out')->assertSuccessful();
 
     // Rendered, not just constructed: the conditional lives in the Blade view,
@@ -215,9 +215,9 @@ it('carries the site link in every message', function (): void {
 
     $attendance = Attendance::create([
         'user_id' => $tasker->id,
-        'attendance_date' => '2026-07-26',
-        'time_in' => CarbonImmutable::parse('2026-07-26 22:05'),
-        'time_out' => CarbonImmutable::parse('2026-07-27 06:00'),
+        'attendance_date' => '2026-07-28',
+        'time_in' => CarbonImmutable::parse('2026-07-28 22:05'),
+        'time_out' => CarbonImmutable::parse('2026-07-29 06:00'),
         'total_hours' => 7.92,
         'status' => AttendanceStatus::Present,
     ]);
@@ -239,8 +239,8 @@ it('shows the logo, and the product name when images are blocked', function (): 
 
     $attendance = Attendance::create([
         'user_id' => tasker()->id,
-        'attendance_date' => '2026-07-26',
-        'time_in' => CarbonImmutable::parse('2026-07-26 22:05'),
+        'attendance_date' => '2026-07-28',
+        'time_in' => CarbonImmutable::parse('2026-07-28 22:05'),
         'status' => AttendanceStatus::Present,
     ]);
 

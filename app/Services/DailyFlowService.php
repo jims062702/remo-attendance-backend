@@ -64,6 +64,12 @@ class DailyFlowService
         $now = $at ? CarbonImmutable::instance($at) : CarbonImmutable::now();
         $businessDate = $this->attendance->resolveBusinessDate($now);
 
+        // Activation is the other door into the same clock, so it needs the
+        // same guard as timeIn(): no rostered shift, nothing to activate.
+        if (! $this->attendance->isWorkingDate($businessDate)) {
+            throw AttendanceException::notRostered($businessDate);
+        }
+
         // Set inside the transaction, read after it. Activation is re-submitted
         // every time a tasker changes desk or fixes a bracket, and only the
         // submission that actually starts the clock is worth an email -- one
@@ -468,19 +474,30 @@ class DailyFlowService
         // is not a form to be completed; it is a contradiction.
         $settled = $attendance !== null && ! $attendance->status->isWorked();
 
+        // No shift is rostered tonight. Distinct from `settled`, which is about
+        // a night that WAS scheduled and has been closed as non-attendance --
+        // the two need different words on screen, because "you were marked
+        // absent" and "nobody is working tonight" are not the same news.
+        $offDuty = ! $this->attendance->isWorkingDate($businessDate);
+
+        // The one condition every step is gated on.
+        $open = ! $settled && ! $offDuty;
+
         return [
             'business_date' => $businessDate->toDateString(),
             'attendance' => $attendance,
             'tracker' => $tracker,
             'settled' => $settled,
+            'off_duty' => $offDuty,
             'steps' => [
-                // Every step reads false once the night is settled, so a client
-                // that predates this field still renders an untouched flow
-                // rather than a half-completed one.
-                'activation' => ! $settled && $attendance?->commitment_bracket !== null,
-                'clocked_in' => ! $settled && $attendance?->time_in !== null,
-                'tracker' => ! $settled && $tracker !== null,
-                'clocked_out' => ! $settled && $attendance?->time_out !== null,
+                // Every step reads false once the night is closed -- settled as
+                // non-attendance, or not rostered at all -- so a client that
+                // predates these fields still renders an untouched flow rather
+                // than a half-completed one.
+                'activation' => $open && $attendance?->commitment_bracket !== null,
+                'clocked_in' => $open && $attendance?->time_in !== null,
+                'tracker' => $open && $tracker !== null,
+                'clocked_out' => $open && $attendance?->time_out !== null,
             ],
             // Pre-fill the next entry from the last one, so a tasker who works
             // the same project at the same level is not re-picking identical

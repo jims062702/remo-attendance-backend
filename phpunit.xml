@@ -36,6 +36,21 @@
         <!-- Tests run against a real MariaDB schema, not SQLite: the attendance
              rules depend on genuine unique-index violations and ENUM/DECIMAL
              behaviour that SQLite does not reproduce faithfully. -->
+        <!--
+            Empty roster, meaning every night runs.
+
+            The suite is built around 2026-07-26, which happens to be a Sunday,
+            and almost none of these tests are about the roster. They are about
+            clocking in, hours, reports and exports. Leaving the real Tuesday
+            to Saturday roster in place would fail three hundred tests on the
+            weekday of a fixture date chosen arbitrarily, which teaches nobody
+            anything.
+
+            WorkingDaysTest sets the real roster itself. That is also what
+            makes it readable: the days under test are named in the test rather
+            than inherited from configuration.
+        -->
+        <env name="ATTENDANCE_WORKING_DAYS" value=""/>
         <env name="DB_CONNECTION" value="mariadb"/>
         <env name="DB_DATABASE" value="remo_attendance_test"/>
         <env name="APP_TIMEZONE" value="Asia/Manila"/>

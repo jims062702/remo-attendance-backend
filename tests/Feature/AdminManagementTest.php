@@ -113,7 +113,7 @@ it('reports nightly tracker production on the tasker detail page', function (): 
         'items' => [[
             'project_id' => $project->id,
             'tasker_level' => 'l8',
-            'total_tasks' => 42,
+            'total_tasks' => 2,
             'task_ids' => 'TASK1, TASK2 (SBQ)',
             'task_complexity' => 'mid_scene_frames',
             'screenshot_links' => 'https://drive.example.com/a',
@@ -126,7 +126,7 @@ it('reports nightly tracker production on the tasker detail page', function (): 
         ->assertOk();
 
     expect($response->json('data.summary.production.nights_filed'))->toBe(1)
-        ->and($response->json('data.summary.production.total_tasks'))->toBe(42)
+        ->and($response->json('data.summary.production.total_tasks'))->toBe(2)
         ->and($response->json('data.recent_entries'))->toHaveCount(1)
         // And the Extra Tasks page really is empty -- it was never used.
         ->and($response->json('data.recent_tasks'))->toBe([]);

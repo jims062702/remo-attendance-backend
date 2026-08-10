@@ -18,8 +18,10 @@ use Illuminate\Support\Facades\Date;
  * would mark the whole floor absent for a shift that has not started.
  */
 beforeEach(function (): void {
-    // 00:01 on Jul 27 is inside the shift that began 22:00 on Jul 26.
-    Date::setTestNow(CarbonImmutable::parse('2026-07-27 00:01'));
+    // 00:01 on Wed Jul 29 is inside the shift that began 22:00 on Tue Jul 28 --
+    // a rostered night, so mark-absent actually runs. See WorkingDaysTest for
+    // the Sunday and Monday nights it deliberately skips.
+    Date::setTestNow(CarbonImmutable::parse('2026-07-29 00:01'));
 });
 
 afterEach(function (): void {
@@ -35,7 +37,7 @@ it('marks an active tasker who never clocked in as absent', function (): void {
 
     expect($record)->not->toBeNull();
     expect($record->status)->toBe(AttendanceStatus::Absent);
-    expect($record->attendance_date->toDateString())->toBe('2026-07-26');
+    expect($record->attendance_date->toDateString())->toBe('2026-07-28');
     expect($record->time_in)->toBeNull();
 });
 
@@ -44,8 +46,8 @@ it('leaves a tasker who clocked in alone', function (): void {
 
     Attendance::create([
         'user_id' => $tasker->id,
-        'attendance_date' => '2026-07-26',
-        'time_in' => CarbonImmutable::parse('2026-07-26 22:05'),
+        'attendance_date' => '2026-07-28',
+        'time_in' => CarbonImmutable::parse('2026-07-28 22:05'),
         'status' => AttendanceStatus::Present,
     ]);
 
@@ -183,8 +185,8 @@ it('leaves the flow open for a tasker who worked', function (): void {
 
     Attendance::create([
         'user_id' => $tasker->id,
-        'attendance_date' => '2026-07-26',
-        'time_in' => CarbonImmutable::parse('2026-07-26 22:05'),
+        'attendance_date' => '2026-07-28',
+        'time_in' => CarbonImmutable::parse('2026-07-28 22:05'),
         'status' => AttendanceStatus::Present,
     ]);
 
@@ -202,8 +204,8 @@ it('leaves a late tasker who beat the cutoff fully enabled', function (): void {
 
     Attendance::create([
         'user_id' => $tasker->id,
-        'attendance_date' => '2026-07-26',
-        'time_in' => CarbonImmutable::parse('2026-07-26 23:59'),
+        'attendance_date' => '2026-07-28',
+        'time_in' => CarbonImmutable::parse('2026-07-28 23:59'),
         'status' => AttendanceStatus::Late,
     ]);
 
@@ -233,8 +235,8 @@ it('lets a tasker who clocked in keep filing after the cutoff', function (): voi
     Attendance::create([
         'user_id' => $tasker->id,
         'workstation_id' => $pc->id,
-        'attendance_date' => '2026-07-26',
-        'time_in' => CarbonImmutable::parse('2026-07-26 22:05'),
+        'attendance_date' => '2026-07-28',
+        'time_in' => CarbonImmutable::parse('2026-07-28 22:05'),
         'status' => AttendanceStatus::Present,
         'commitment_bracket' => '7_plus_hours',
     ]);
@@ -247,7 +249,7 @@ it('lets a tasker who clocked in keep filing after the cutoff', function (): voi
         'items' => [[
             'project_id' => $project->id,
             'tasker_level' => 'l8',
-            'total_tasks' => 42,
+            'total_tasks' => 2,
             'task_ids' => 'TASK1, TASK2 (SBQ)',
             'task_complexity' => 'mid_scene_frames',
             'screenshot_links' => 'https://drive.example.com/a',
@@ -271,21 +273,21 @@ it('re-enables everything once the business date rolls over', function (): void 
 
     $this->actingAs($tasker)->getJson('/api/daily/state')
         ->assertJsonPath('data.settled', true)
-        ->assertJsonPath('data.business_date', '2026-07-26');
+        ->assertJsonPath('data.business_date', '2026-07-28');
 
     // One minute before the rollover: still last night, still settled.
-    Date::setTestNow(CarbonImmutable::parse('2026-07-27 21:49'));
+    Date::setTestNow(CarbonImmutable::parse('2026-07-29 21:49'));
 
     $this->actingAs($tasker)->getJson('/api/daily/state')
         ->assertJsonPath('data.settled', true)
-        ->assertJsonPath('data.business_date', '2026-07-26');
+        ->assertJsonPath('data.business_date', '2026-07-28');
 
     // At the rollover: a new night, an empty flow.
-    Date::setTestNow(CarbonImmutable::parse('2026-07-27 21:50'));
+    Date::setTestNow(CarbonImmutable::parse('2026-07-29 21:50'));
 
     $this->actingAs($tasker)->getJson('/api/daily/state')
         ->assertJsonPath('data.settled', false)
-        ->assertJsonPath('data.business_date', '2026-07-27')
+        ->assertJsonPath('data.business_date', '2026-07-29')
         ->assertJsonPath('data.steps.activation', false)
         ->assertJsonPath('data.steps.clocked_in', false);
 });

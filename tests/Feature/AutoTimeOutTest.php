@@ -107,7 +107,7 @@ it('lets the tasker still file a tracker entry afterwards', function (): void {
         'items' => [[
             'project_id' => $project->id,
             'tasker_level' => 'l8',
-            'total_tasks' => 42,
+            'total_tasks' => 2,
             'task_ids' => 'TASK1, TASK2 (SBQ)',
             'task_complexity' => 'mid_scene_frames',
             'screenshot_links' => 'https://drive.example.com/a',

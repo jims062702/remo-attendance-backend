@@ -83,6 +83,27 @@ final class AttendanceException extends DomainException
     }
 
     /**
+     * The floor is not rostered to run tonight.
+     *
+     * The shift is named by the date it starts, so this is about the weekday
+     * of the business date -- a Sunday night is Sunday's, whatever the clock
+     * says after midnight. See config('attendance.working_days').
+     */
+    public static function notRostered(CarbonInterface $businessDate): self
+    {
+        return new self(
+            "There is no shift scheduled for {$businessDate->format('l, M j')}. "
+            .'The floor runs Tuesday to Saturday nights; Sunday and Monday are rest nights.',
+            'attendance.not_rostered',
+            Response::HTTP_CONFLICT,
+            [
+                'business_date' => $businessDate->toDateString(),
+                'weekday' => $businessDate->format('l'),
+            ],
+        );
+    }
+
+    /**
      * The night has already been settled as non-attendance.
      *
      * Reached either by `attendance:mark-absent` at the configured cutoff or by

@@ -524,8 +524,13 @@ class ReportService
             return null;
         }
 
-        $days = CarbonImmutable::parse((string) $from)->startOfDay()
-            ->diffInDays(CarbonImmutable::parse((string) $to)->startOfDay()) + 1;
+        // Rostered nights only. Dividing by every calendar day counted the two
+        // nights nobody was expected against the tasker, so a perfect
+        // five-night week scored about 71%.
+        $days = $this->attendance->workingDatesBetween(
+            CarbonImmutable::parse((string) $from),
+            CarbonImmutable::parse((string) $to),
+        );
 
         return $days > 0 ? round($daysWorked / $days * 100, 2) : null;
     }

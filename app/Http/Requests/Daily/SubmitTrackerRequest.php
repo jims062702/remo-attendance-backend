@@ -7,9 +7,11 @@ namespace App\Http\Requests\Daily;
 use App\Enums\TaskComplexity;
 use App\Enums\TaskerLevel;
 use App\Enums\Tenurity;
+use App\Services\DailyFlowService;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 /**
  * Step 3: the Centralised Tracker entry.
@@ -53,13 +55,22 @@ class SubmitTrackerRequest extends FormRequest
 
             'items' => ['required', 'array', 'min:1'],
             'items.*.project_id' => ['required', 'integer', 'distinct', 'exists:projects,id'],
-            'items.*.total_tasks' => ['required', 'integer', 'min:0', 'max:100000'],
+
+            // At least one. A project block declaring zero tasks is a block
+            // that should not have been added -- and with task IDs now
+            // required, zero would have to be matched by zero IDs, which is a
+            // contradiction rather than a rule.
+            'items.*.total_tasks' => ['required', 'integer', 'min:1', 'max:100000'],
+
             // Level is asked per project, not once per night.
             'items.*.tasker_level' => ['required', Rule::enum(TaskerLevel::class)],
-            // Stored verbatim: support validates against exactly what was typed.
-            'items.*.task_ids' => ['nullable', 'string', 'max:20000'],
+
+            // Both required now. Stored verbatim: support validates against
+            // exactly what was typed. The count of IDs is checked against
+            // total_tasks in withValidator() below.
+            'items.*.task_ids' => ['required', 'string', 'max:20000'],
             'items.*.task_complexity' => ['nullable', Rule::enum(TaskComplexity::class)],
-            'items.*.screenshot_links' => ['nullable', 'string', 'max:20000'],
+            'items.*.screenshot_links' => ['required', 'string', 'max:20000'],
 
             // "Total Work Hours Today" is derived from the clock (time in to
             // time out), never typed -- so it is not accepted here at all.
@@ -94,6 +105,59 @@ class SubmitTrackerRequest extends FormRequest
         }
 
         $this->merge(['items' => $items]);
+    }
+
+    /**
+     * Every task declared has to be accounted for by an ID.
+     *
+     * "3 tasks" and a list naming two of them is a number nobody can check.
+     * The IDs are what support traces a night's work against, so the count is
+     * the thing that makes the total meaningful rather than typed.
+     *
+     * Counted the same way DailyFlowService::parseTaskIds() counts them --
+     * split on commas, trimmed, blanks and "N/A" discarded -- because a rule
+     * that counted differently from the figure it is validating would reject
+     * correct entries.
+     */
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator): void {
+            $items = $this->input('items');
+
+            if (! is_array($items)) {
+                return;
+            }
+
+            /** @var DailyFlowService $flow */
+            $flow = app(DailyFlowService::class);
+
+            foreach ($items as $index => $item) {
+                $declared = (int) ($item['total_tasks'] ?? 0);
+                $raw = $item['task_ids'] ?? null;
+
+                // Nothing to compare against: the required rules above have
+                // already objected, and a second message about the same field
+                // only adds noise.
+                if ($declared < 1 || ! is_string($raw) || trim($raw) === '') {
+                    continue;
+                }
+
+                $supplied = $flow->parseTaskIds($raw)['total'];
+
+                if ($supplied === $declared) {
+                    continue;
+                }
+
+                $validator->errors()->add("items.{$index}.task_ids", sprintf(
+                    'You declared %d task%s but listed %d ID%s. Separate every ID with a comma, '
+                    .'so the two match.',
+                    $declared,
+                    $declared === 1 ? '' : 's',
+                    $supplied,
+                    $supplied === 1 ? '' : 's',
+                ));
+            }
+        });
     }
 
     private function isBlank(string $value): bool

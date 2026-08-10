@@ -33,8 +33,15 @@ beforeEach(function (): void {
 });
 
 /** Complete the nightly flow: file attendance, then declare production. */
-function fileNight(int $tasks, int $pcId, int $projectId, array $taskIds = ['T1', 'T2']): void
+/*
+ * Task IDs are generated to match the declared total, because the tracker
+ * now requires one ID per task -- a fixture that declared six and listed two
+ * would be testing the validation rather than the reporting.
+ */
+function fileNight(int $tasks, int $pcId, int $projectId, ?array $taskIds = null): void
 {
+    $taskIds ??= array_map(fn (int $n): string => "T{$n}", range(1, max($tasks, 1)));
+
     test()->postJson('/api/daily/activate', [
         'commitment_bracket' => '7_plus_hours',
         'tasking_statuses' => ['tasking'],
@@ -49,6 +56,7 @@ function fileNight(int $tasks, int $pcId, int $projectId, array $taskIds = ['T1'
             'tasker_level' => 'l8',
             'total_tasks' => $tasks,
             'task_ids' => implode(', ', $taskIds),
+            'screenshot_links' => 'https://drive.example.com/night',
         ]],
     ])->assertCreated();
 }
@@ -63,7 +71,7 @@ it('counts a nightly tracker entry on the admin dashboard', function (): void {
     // one entry filed, six tasks declared, and the dashboard said zero.
     expect($response->json('data.summary.submissions_today'))->toBe(1)
         ->and($response->json('data.summary.output_today'))->toBe(6)
-        ->and($response->json('data.summary.task_ids_today'))->toBe(2);
+        ->and($response->json('data.summary.task_ids_today'))->toBe(6);
 });
 
 it('sums production across several taskers on the dashboard', function (): void {
@@ -76,13 +84,13 @@ it('sums production across several taskers on the dashboard', function (): void 
     fileNight(6, $this->pc->id, $this->project->id);
 
     $this->actingAs($second);
-    fileNight(9, $otherPc->id, $this->project->id, ['A', 'B', 'C']);
+    fileNight(9, $otherPc->id, $this->project->id);
 
     $response = $this->actingAs($this->admin)->getJson('/api/admin/dashboard')->assertOk();
 
     expect($response->json('data.summary.submissions_today'))->toBe(2)
         ->and($response->json('data.summary.output_today'))->toBe(15)
-        ->and($response->json('data.summary.task_ids_today'))->toBe(5);
+        ->and($response->json('data.summary.task_ids_today'))->toBe(15);
 });
 
 it('keeps extra tasks separate from nightly production', function (): void {
@@ -112,7 +120,7 @@ it('reports nightly production on the tasker’s own summary', function (): void
 
     expect($response->json('data.production.total_tasks'))->toBe(6)
         ->and($response->json('data.production.nights_filed'))->toBe(1)
-        ->and($response->json('data.production.task_ids'))->toBe(2);
+        ->and($response->json('data.production.task_ids'))->toBe(6);
 });
 
 it('reports nightly production on the admin tasker detail', function (): void {
