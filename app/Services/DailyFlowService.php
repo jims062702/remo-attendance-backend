@@ -255,28 +255,8 @@ class DailyFlowService
                 ->where('attendance_date', $businessDate->toDateString())
                 ->first();
 
-            // Parse each block separately, then roll the counts up to the entry
-            // so list views need no joins.
-            $prepared = [];
-            $totalIds = 0;
-            $totalSbq = 0;
-
-            foreach ($items as $row) {
-                $parsed = $this->parseTaskIds((string) ($row['task_ids'] ?? ''));
-                $totalIds += $parsed['total'];
-                $totalSbq += $parsed['sbq'];
-
-                $prepared[] = [
-                    'project_id' => (int) $row['project_id'],
-                    'tasker_level' => $row['tasker_level'] ?? null,
-                    'total_tasks' => (int) ($row['total_tasks'] ?? 0),
-                    'task_ids' => $this->blankToNull($row['task_ids'] ?? null),
-                    'task_id_count' => $parsed['total'],
-                    'sbq_count' => $parsed['sbq'],
-                    'task_complexity' => $row['task_complexity'] ?? null,
-                    'screenshot_links' => $this->blankToNull($row['screenshot_links'] ?? null),
-                ];
-            }
+            ['blocks' => $prepared, 'task_ids' => $totalIds, 'sbq' => $totalSbq]
+                = $this->prepareItems($items);
 
             $entry = TrackerEntry::updateOrCreate(
                 ['user_id' => $user->id, 'entry_date' => $businessDate->toDateString()],
@@ -433,6 +413,85 @@ class DailyFlowService
      *
      * @return array{total: int, sbq: int}
      */
+    /**
+     * Turn submitted project blocks into rows, and roll their counts up.
+     *
+     * Extracted so the admin correction path writes blocks exactly the way the
+     * tasker's own submission does. Two parsers for one shape is how a
+     * corrected entry ends up counting its task IDs differently from the entry
+     * it corrected.
+     *
+     * @param  array<int, array<string, mixed>>  $items
+     * @return array{blocks: array<int, array<string, mixed>>, task_ids: int, sbq: int}
+     */
+    private function prepareItems(array $items): array
+    {
+        $blocks = [];
+        $totalIds = 0;
+        $totalSbq = 0;
+
+        foreach ($items as $row) {
+            $parsed = $this->parseTaskIds((string) ($row['task_ids'] ?? ''));
+            $totalIds += $parsed['total'];
+            $totalSbq += $parsed['sbq'];
+
+            $blocks[] = [
+                'project_id' => (int) $row['project_id'],
+                'tasker_level' => $row['tasker_level'] ?? null,
+                'total_tasks' => (int) ($row['total_tasks'] ?? 0),
+                'task_ids' => $this->blankToNull($row['task_ids'] ?? null),
+                'task_id_count' => $parsed['total'],
+                'sbq_count' => $parsed['sbq'],
+                'task_complexity' => $row['task_complexity'] ?? null,
+                'screenshot_links' => $this->blankToNull($row['screenshot_links'] ?? null),
+            ];
+        }
+
+        return ['blocks' => $blocks, 'task_ids' => $totalIds, 'sbq' => $totalSbq];
+    }
+
+    /**
+     * Correct an existing entry, from the admin screens.
+     *
+     * Deliberately narrow. The tasker and the shift date are not touched: an
+     * entry belongs to a person and a night, and "correcting" either would be
+     * moving the record rather than fixing it -- delete and re-file is the
+     * honest way to do that, and it leaves a trail.
+     *
+     * `declared_hours` is not touched either. It is derived from the clock, so
+     * an admin who needs it changed corrects the attendance record and lets it
+     * follow.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<int, array<string, mixed>>  $items
+     */
+    public function reviseEntry(TrackerEntry $entry, array $data, array $items): TrackerEntry
+    {
+        return DB::transaction(function () use ($entry, $data, $items): TrackerEntry {
+            ['blocks' => $blocks, 'task_ids' => $totalIds, 'sbq' => $totalSbq]
+                = $this->prepareItems($items);
+
+            $entry->forceFill([
+                'tenurity' => $data['tenurity'],
+                'site_id' => $data['site_id'] ?? $entry->site_id,
+                'support_team_id' => $data['support_team_id'] ?? null,
+                'task_id_count' => $totalIds,
+                'sbq_count' => $totalSbq,
+                'remarks' => $data['remarks'] ?? null,
+            ])->save();
+
+            // Replaced wholesale, for the same reason the tasker's own revision
+            // replaces them: dropping a project has to actually drop it.
+            $entry->items()->delete();
+
+            foreach ($blocks as $row) {
+                $entry->items()->create($row);
+            }
+
+            return $entry->load(['items.project', 'site', 'supportTeam', 'user']);
+        });
+    }
+
     public function parseTaskIds(string $raw): array
     {
         $parts = collect(explode(',', $raw))

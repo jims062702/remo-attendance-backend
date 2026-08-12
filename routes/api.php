@@ -135,6 +135,11 @@ Route::middleware(['auth:sanctum', 'active'])->group(function (): void {
         Route::get('tracker-entries', [ReportController::class, 'trackerEntries'])->name('tracker-entries');
 
         // Listing is reporting; removing is not. Hence the separate controller.
+        // Corrections go through the tasker's own validation rules, so an
+        // admin cannot file an entry a tasker could not.
+        Route::put('tracker-entries/{entry}', [TrackerEntryController::class, 'update'])
+            ->whereNumber('entry')->name('tracker-entries.update');
+
         Route::delete('tracker-entries/{entry}', [TrackerEntryController::class, 'destroy'])
             ->whereNumber('entry')->name('tracker-entries.destroy');
 

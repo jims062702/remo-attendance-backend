@@ -6,8 +6,11 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Concerns\ApiResponses;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\UpdateTrackerEntryRequest;
+use App\Http\Resources\TrackerEntryResource;
 use App\Models\TrackerEntry;
 use App\Services\ActivityLogger;
+use App\Services\DailyFlowService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -24,7 +27,69 @@ class TrackerEntryController extends Controller
 {
     use ApiResponses;
 
-    public function __construct(private readonly ActivityLogger $logger) {}
+    public function __construct(
+        private readonly ActivityLogger $logger,
+        private readonly DailyFlowService $daily,
+    ) {}
+
+    /**
+     * Correct a submission.
+     *
+     * Validated by UpdateTrackerEntryRequest, which extends the tasker's own
+     * submission rules -- so an admin cannot file an entry a tasker could not.
+     *
+     * The tasker and the shift date are not editable. An entry belongs to a
+     * person and a night; changing either is moving the record, not correcting
+     * it, and delete-and-refile is the honest way to do that.
+     */
+    public function update(UpdateTrackerEntryRequest $request, TrackerEntry $entry): JsonResponse
+    {
+        $data = $request->validated();
+
+        $entry->loadMissing(['user', 'items.project']);
+
+        // Captured before the write, because items are replaced wholesale and
+        // the previous shape is otherwise unrecoverable.
+        $before = [
+            'task_id_count' => $entry->task_id_count,
+            'sbq_count' => $entry->sbq_count,
+            'tenurity' => $entry->tenurity->value,
+            'remarks' => $entry->remarks,
+            'projects' => $entry->items->map(fn ($item): array => [
+                'project' => $item->project?->code,
+                'total_tasks' => $item->total_tasks,
+                'task_ids' => $item->task_ids,
+            ])->all(),
+        ];
+
+        $entry = $this->daily->reviseEntry($entry, $data, $data['items']);
+
+        $after = [
+            'task_id_count' => $entry->task_id_count,
+            'sbq_count' => $entry->sbq_count,
+            'tenurity' => $entry->tenurity->value,
+            'remarks' => $entry->remarks,
+            'projects' => $entry->items->map(fn ($item): array => [
+                'project' => $item->project?->code,
+                'total_tasks' => $item->total_tasks,
+                'task_ids' => $item->task_ids,
+            ])->all(),
+        ];
+
+        $this->logger->logChanges(
+            'tracker.corrected',
+            "Corrected the submission of {$entry->entry_date->toDateString()} for {$entry->user?->email}",
+            $entry,
+            $before,
+            $after,
+            $request->user(),
+        );
+
+        return $this->ok(
+            TrackerEntryResource::make($entry)->resolve(),
+            'Submission updated.',
+        );
+    }
 
     /**
      * Delete a submission outright.
