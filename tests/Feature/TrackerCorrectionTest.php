@@ -93,6 +93,50 @@ it('replaces the blocks wholesale so a removed project actually goes', function 
         ->and($items->first()->project_id)->toBe($this->other->id);
 });
 
+it('repoints a block at a different project', function (): void {
+    // The correction an admin most often needs: the right work filed under the
+    // wrong project.
+    $this->actingAs($this->admin)
+        ->putJson("/api/admin/tracker-entries/{$this->entry->id}", correction([[
+            'project_id' => $this->other->id,
+            'tasker_level' => 'l8',
+            'total_tasks' => 2,
+            'task_ids' => 'A1, A2 (SBQ)',
+            'screenshot_links' => 'https://drive.example.com/a',
+        ]]))
+        ->assertOk();
+
+    $item = TrackerItem::firstOrFail();
+
+    expect($item->project_id)->toBe($this->other->id)
+        // The work itself is untouched; only where it was filed changed.
+        ->and($item->total_tasks)->toBe(2)
+        ->and($item->task_id_count)->toBe(2)
+        ->and($item->sbq_count)->toBe(1);
+});
+
+it('refuses the same project twice in one submission', function (): void {
+    $this->actingAs($this->admin)
+        ->putJson("/api/admin/tracker-entries/{$this->entry->id}", correction([
+            [
+                'project_id' => $this->project->id,
+                'tasker_level' => 'l8',
+                'total_tasks' => 1,
+                'task_ids' => 'A1',
+                'screenshot_links' => 'https://drive.example.com/a',
+            ],
+            [
+                'project_id' => $this->project->id,
+                'tasker_level' => 'l8',
+                'total_tasks' => 1,
+                'task_ids' => 'B1',
+                'screenshot_links' => 'https://drive.example.com/b',
+            ],
+        ]))
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('items.0.project_id');
+});
+
 it('holds a correction to the same rules a tasker submits under', function (): void {
     // Three declared, two listed. If this passed, the admin screen would be a
     // way round the check the tasker cannot get past.
