@@ -96,6 +96,10 @@ Route::middleware(['auth:sanctum', 'active'])->group(function (): void {
         Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
         Route::get('analytics/attendance', [DashboardController::class, 'analytics'])->name('analytics.attendance');
 
+        // The same floor the taskers pick from, read-only. Answers "which
+        // desks are free right now" without an admin having to ask anyone.
+        Route::get('floor', [DashboardController::class, 'floor'])->name('floor');
+
         // Tasker management. `restore` takes a raw id because the model it
         // targets is soft deleted and would not resolve through route binding.
         Route::post('taskers/{tasker}/restore', [TaskerController::class, 'restore'])

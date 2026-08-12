@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\AttendanceIndexRequest;
 use App\Http\Resources\AttendanceResource;
 use App\Services\AttendanceService;
+use App\Services\DailyFlowService;
 use App\Services\ReportService;
 use Illuminate\Http\JsonResponse;
 
@@ -19,6 +20,7 @@ class DashboardController extends Controller
     public function __construct(
         private readonly ReportService $reports,
         private readonly AttendanceService $attendance,
+        private readonly DailyFlowService $daily,
     ) {}
 
     /**
@@ -47,6 +49,23 @@ class DashboardController extends Controller
     /**
      * Time series for the attendance charts.
      */
+    /**
+     * The floor, exactly as a tasker sees it.
+     *
+     * Same service, same payload, same component on the other side: an
+     * administrator asking "which desks are free" and a tasker asking "where do
+     * I sit" are reading the same room, and two answers to that would be one
+     * answer too many.
+     *
+     * Not a copy of the tasker endpoint -- an admin route, because this is an
+     * admin screen and the authorisation should say so rather than relying on
+     * a tasker route happening to accept an admin's session.
+     */
+    public function floor(): JsonResponse
+    {
+        return $this->ok($this->daily->availableWorkstations()->all());
+    }
+
     public function analytics(AttendanceIndexRequest $request): JsonResponse
     {
         return $this->ok($this->reports->attendanceAnalytics($request->filters()));
