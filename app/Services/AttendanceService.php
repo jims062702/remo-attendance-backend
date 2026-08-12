@@ -83,6 +83,42 @@ class AttendanceService
     }
 
     /**
+     * The start of the working week a business date belongs to.
+     *
+     * Anchored to the first rostered night rather than to Monday. The floor
+     * runs Tuesday to Saturday, so a "week" that begins on Monday begins on a
+     * night nobody works -- and every figure labelled "this week" then covers a
+     * span whose first day is not in it.
+     *
+     * Walks backwards to the most recent occurrence of the first rostered
+     * weekday, which is at most six days and needs no calendar arithmetic to
+     * get wrong. A date already on that weekday is its own week start.
+     */
+    public function startOfWorkWeek(CarbonInterface $businessDate): CarbonImmutable
+    {
+        $days = (array) config('attendance.working_days');
+
+        // No roster means every night runs, and the ISO week is as good an
+        // answer as any -- which is what this did before a roster existed.
+        if ($days === []) {
+            return CarbonImmutable::instance($businessDate)->startOfWeek();
+        }
+
+        $first = min($days);
+        $date = CarbonImmutable::instance($businessDate)->startOfDay();
+
+        for ($back = 0; $back < 7; $back++) {
+            if ($date->dayOfWeekIso === $first) {
+                return $date;
+            }
+
+            $date = $date->subDay();
+        }
+
+        return CarbonImmutable::instance($businessDate)->startOfWeek();
+    }
+
+    /**
      * How many rostered nights fall in a date range, inclusive of both ends.
      *
      * The denominator for an attendance rate. Counting calendar days instead

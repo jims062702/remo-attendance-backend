@@ -333,7 +333,9 @@ class DailyFlowService
     public function productionTotals(User $user, ?CarbonInterface $at = null): array
     {
         $today = $this->attendance->resolveBusinessDate($at);
-        $weekStart = $today->startOfWeek();
+        // The working week, not the calendar one: it begins on the first
+        // rostered night rather than on a Monday nobody works.
+        $weekStart = $this->attendance->startOfWorkWeek($today);
         $monthStart = $today->startOfMonth();
 
         $entries = TrackerEntry::query()

@@ -422,7 +422,56 @@ class ReportService
             ->get()
             ->keyBy('user_id');
 
-        $userIds = $attendance->keys()->merge($tasks->keys())->unique()->values();
+        /*
+         * Production filed through the nightly flow.
+         *
+         * The third place this was missing. The dashboard and the tasker detail
+         * page both read `tasks` -- the optional Extra Tasks screen -- and
+         * reported nothing for people who had worked every night, because
+         * essentially all production is declared through the tracker. This
+         * report had the same fault: "Total output" counted one submission
+         * across a floor of nineteen, and the output chart ranked a single name.
+         *
+         * Summed through the join rather than off the entry, because the task
+         * counts live on the per-project blocks.
+         */
+        $production = TrackerItem::query()
+            ->join('tracker_entries', 'tracker_entries.id', '=', 'tracker_items.tracker_entry_id')
+            ->whereNull('tracker_entries.deleted_at')
+            ->when(
+                $filters['from'] ?? null,
+                fn ($q, $from) => $q->where('tracker_entries.entry_date', '>=', $from),
+            )
+            ->when(
+                $filters['to'] ?? null,
+                fn ($q, $to) => $q->where('tracker_entries.entry_date', '<=', $to),
+            )
+            ->when(
+                $filters['user_id'] ?? null,
+                fn ($q, $id) => $q->where('tracker_entries.user_id', $id),
+            )
+            ->groupBy('tracker_entries.user_id')
+            ->selectRaw('tracker_entries.user_id AS user_id')
+            ->selectRaw('COALESCE(SUM(tracker_items.total_tasks), 0) AS produced')
+            ->pluck('produced', 'user_id');
+
+        $entries = TrackerEntry::query()
+            ->when($filters['from'] ?? null, fn ($q, $from) => $q->where('entry_date', '>=', $from))
+            ->when($filters['to'] ?? null, fn ($q, $to) => $q->where('entry_date', '<=', $to))
+            ->when($filters['user_id'] ?? null, fn ($q, $id) => $q->where('user_id', $id))
+            ->groupBy('user_id')
+            ->selectRaw('user_id')
+            ->selectRaw('COUNT(*) AS nights')
+            ->selectRaw('COALESCE(SUM(task_id_count), 0) AS task_ids')
+            ->selectRaw('COALESCE(SUM(sbq_count), 0) AS sbq')
+            ->get()
+            ->keyBy('user_id');
+
+        $userIds = $attendance->keys()
+            ->merge($tasks->keys())
+            ->merge($entries->keys())
+            ->unique()
+            ->values();
 
         if ($userIds->isEmpty()) {
             return collect();
@@ -432,9 +481,11 @@ class ReportService
             ->whereIn('id', $userIds)
             ->orderBy('name')
             ->get()
-            ->map(function (User $user) use ($attendance, $tasks): array {
+            ->map(function (User $user) use ($attendance, $tasks, $production, $entries): array {
                 $a = $attendance->get($user->id);
                 $t = $tasks->get($user->id);
+                $e = $entries->get($user->id);
+                $produced = (int) ($production[$user->id] ?? 0);
 
                 $daysWorked = (int) ($a->days_worked ?? 0);
                 $totalHours = round((float) ($a->total_hours ?? 0), 2);
@@ -455,12 +506,22 @@ class ReportService
                     'average_hours' => $a?->average_hours === null ? null : round((float) $a->average_hours, 2),
                     'expected_hours' => $expectedHours,
                     'variance' => round($totalHours - $expectedHours, 2),
-                    'total_tasks' => $totalTasks,
-                    'completed_tasks' => $completed,
-                    'total_output' => (int) ($t->total_output ?? 0),
+                    // The nightly tracker: what almost everybody actually
+                    // files. Named `output` because that is the word the
+                    // report uses for "how much did this person produce".
+                    'nights_filed' => (int) ($e->nights ?? 0),
+                    'total_output' => $produced,
+                    'task_ids' => (int) ($e->task_ids ?? 0),
+                    'sbq' => (int) ($e->sbq ?? 0),
                     'average_daily_output' => $daysWorked > 0
-                        ? round((int) ($t->total_output ?? 0) / $daysWorked, 2)
+                        ? round($produced / $daysWorked, 2)
                         : null,
+
+                    // The separate Extra Tasks page, kept under its own names
+                    // so the two are never silently added together.
+                    'extra_tasks' => $totalTasks,
+                    'extra_completed' => $completed,
+                    'extra_output' => (int) ($t->total_output ?? 0),
                     'completion_rate' => $completable > 0
                         ? round($completed / $completable * 100, 2)
                         : null,

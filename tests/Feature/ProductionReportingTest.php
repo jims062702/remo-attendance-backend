@@ -123,6 +123,42 @@ it('reports nightly production on the tasker’s own summary', function (): void
         ->and($response->json('data.production.task_ids'))->toBe(6);
 });
 
+it('ranks taskers by nightly production on the summary report', function (): void {
+    /*
+     * The third place this was wrong. The report read `tasks` -- the optional
+     * Extra Tasks screen -- for its output column, so a floor of nineteen
+     * showed a total output of 1 and the chart ranked the single person who
+     * had used that page. Everyone who filed through the nightly flow, which
+     * is everyone, sat at zero.
+     */
+    $second = tasker(['name' => 'Ana Reyes']);
+    $otherPc = App\Models\Workstation::create([
+        'name' => 'PC-09 3F C', 'site_id' => $this->site->id, 'is_active' => true,
+    ]);
+
+    $this->actingAs($this->tasker);
+    fileNight(6, $this->pc->id, $this->project->id);
+
+    $this->actingAs($second);
+    fileNight(9, $otherPc->id, $this->project->id);
+
+    $rows = collect(
+        $this->actingAs($this->admin)
+            ->getJson("/api/admin/reports/tasker-summary?from={$this->businessDate}&to={$this->businessDate}")
+            ->assertOk()
+            ->json('data'),
+    )->keyBy('name');
+
+    expect($rows)->toHaveCount(2)
+        ->and($rows[$this->tasker->name]['total_output'])->toBe(6)
+        ->and($rows[$this->tasker->name]['nights_filed'])->toBe(1)
+        ->and($rows[$this->tasker->name]['task_ids'])->toBe(6)
+        ->and($rows['Ana Reyes']['total_output'])->toBe(9)
+        // And the Extra Tasks page is reported separately, still empty.
+        ->and($rows['Ana Reyes']['extra_tasks'])->toBe(0)
+        ->and($rows['Ana Reyes']['extra_output'])->toBe(0);
+});
+
 it('reports nightly production on the admin tasker detail', function (): void {
     $this->actingAs($this->tasker);
     fileNight(6, $this->pc->id, $this->project->id);

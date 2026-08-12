@@ -43,11 +43,18 @@ class TaskerSummaryExport extends ReportExport
             'Average Hours/Day' => 18,
             'Committed Hours' => 16,
             'Variance' => 12,
-            'Total Tasks' => 12,
-            'Completed' => 12,
-            'Completion Rate %' => 18,
+            // Nights filed and output are the nightly tracker: what almost
+            // every tasker actually declares. The three Extra Tasks columns
+            // that follow are the separate optional page, named so nobody
+            // reads them as the same measure.
+            'Nights Filed' => 13,
             'Total Output' => 13,
+            'Task IDs' => 11,
+            'SBQ' => 8,
             'Average Output/Day' => 18,
+            'Extra Tasks' => 12,
+            'Extra Completed' => 16,
+            'Extra Completion %' => 18,
         ];
     }
 
@@ -75,11 +82,14 @@ class TaskerSummaryExport extends ReportExport
             $row['average_hours'],
             $row['expected_hours'],
             $row['variance'],
-            $row['total_tasks'],
-            $row['completed_tasks'],
-            $row['completion_rate'],
+            $row['nights_filed'],
             $row['total_output'],
+            $row['task_ids'],
+            $row['sbq'],
             $row['average_daily_output'],
+            $row['extra_tasks'],
+            $row['extra_completed'],
+            $row['completion_rate'],
         ];
     }
 
@@ -88,7 +98,10 @@ class TaskerSummaryExport extends ReportExport
      */
     protected function decimalColumns(): array
     {
-        return [6, 7, 8, 9, 12, 14];
+        // 1-based, and they moved when the production columns were split:
+        // 6 Total Hours, 7 Average Hours/Day, 8 Committed, 9 Variance,
+        // 14 Average Output/Day, 17 Extra Completion %.
+        return [6, 7, 8, 9, 14, 17];
     }
 
     /**
@@ -105,9 +118,12 @@ class TaskerSummaryExport extends ReportExport
             6 => round((float) $rows->sum('total_hours'), 2),
             8 => round((float) $rows->sum('expected_hours'), 2),
             9 => round((float) $rows->sum('variance'), 2),
-            10 => $rows->sum('total_tasks'),
-            11 => $rows->sum('completed_tasks'),
-            13 => $rows->sum('total_output'),
+            10 => $rows->sum('nights_filed'),
+            11 => $rows->sum('total_output'),
+            12 => $rows->sum('task_ids'),
+            13 => $rows->sum('sbq'),
+            15 => $rows->sum('extra_tasks'),
+            16 => $rows->sum('extra_completed'),
         ];
     }
 }
